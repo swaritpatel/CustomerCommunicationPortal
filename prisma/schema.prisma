@@ -1,0 +1,282 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum WorkspaceRole {
+  ADMIN
+  AGENT
+}
+
+enum MemberStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  REMOVED
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+enum ConversationStatus {
+  OPEN
+  SNOOZED
+  RESOLVED
+}
+
+enum ConversationChannel {
+  EMAIL
+  CHAT_WIDGET
+}
+
+enum ChatSenderType {
+  VISITOR
+  AGENT
+  SYSTEM
+}
+
+enum TypingActorType {
+  VISITOR
+  AGENT
+}
+
+enum EmailMessageSource {
+  INBOUND
+  OUTBOUND
+}
+
+enum AssignmentAction {
+  ASSIGNED
+  REASSIGNED
+  UNASSIGNED
+}
+
+enum AuditAction {
+  USER_SIGNED_UP
+  USER_LOGGED_IN
+  USER_LOGGED_OUT
+  EMAIL_VERIFICATION_SENT
+  EMAIL_VERIFIED
+  PASSWORD_RESET_REQUESTED
+  PASSWORD_RESET_COMPLETED
+  WORKSPACE_CREATED
+  MEMBER_INVITED
+  INVITE_REVOKED
+  INVITE_ACCEPTED
+  MEMBER_ROLE_CHANGED
+  MEMBER_REMOVED
+  CONVERSATION_ASSIGNED
+  CONVERSATION_UNASSIGNED
+}
+
+model User {
+  id                String             @id @default(cuid())
+  fullName          String
+  email             String             @unique
+  passwordHash      String
+  emailVerifiedAt   DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  memberships       WorkspaceMember[]
+  ownedWorkspaces   Workspace[]        @relation("WorkspaceOwner")
+  invitesAccepted   Invite[]           @relation("InviteAcceptedBy")
+  issuedSessions    Session[]
+  authoredAuditLogs AuditLog[]         @relation("AuditActor")
+  assignedConversations Conversation[] @relation("ConversationAssignee")
+  assignmentEventsFrom AssignmentEvent[] @relation("AssignmentFromUser")
+  assignmentEventsTo   AssignmentEvent[] @relation("AssignmentToUser")
+  chatMessages      ChatMessage[]
+  typingStates      ChatTypingState[]
+}
+
+model Workspace {
+  id              String            @id @default(cuid())
+  name            String
+  slug            String            @unique
+  ownerId         String
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  owner           User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members         WorkspaceMember[]
+  invites         Invite[]
+  auditLogs       AuditLog[]
+  conversations   Conversation[]
+  assignmentEvents AssignmentEvent[]
+  chatMessages    ChatMessage[]
+  typingStates    ChatTypingState[]
+  emailReferences EmailMessageReference[]
+}
+
+model WorkspaceMember {
+  id            String         @id @default(cuid())
+  workspaceId   String
+  userId        String
+  role          WorkspaceRole
+  status        MemberStatus   @default(ACTIVE)
+  lastSeenAt    DateTime?
+  invitedAt     DateTime?
+  joinedAt      DateTime?
+  removedAt     DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@index([workspaceId, role])
+}
+
+model Invite {
+  id             String         @id @default(cuid())
+  workspaceId    String
+  email          String
+  role           WorkspaceRole
+  token          String         @unique
+  status         InviteStatus   @default(PENDING)
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  acceptedById   String?
+  revokedAt      DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  acceptedBy     User?          @relation("InviteAcceptedBy", fields: [acceptedById], references: [id])
+
+  @@index([workspaceId, email])
+  @@index([workspaceId, status])
+}
+
+model Session {
+  id                String    @id @default(cuid())
+  userId            String
+  refreshTokenHash  String
+  userAgent         String?
+  ipAddress         String?
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model Conversation {
+  id                String              @id @default(cuid())
+  workspaceId       String
+  subject           String
+  channel           ConversationChannel  @default(CHAT_WIDGET)
+  customerKey       String?
+  customerName      String?
+  customerEmail     String?
+  visitorLastSeenAt DateTime?
+  status            ConversationStatus  @default(OPEN)
+  currentAssigneeId String?
+  ownershipVersion  Int                 @default(0)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  workspace         Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  currentAssignee   User?               @relation("ConversationAssignee", fields: [currentAssigneeId], references: [id])
+  assignmentEvents  AssignmentEvent[]
+  messages          ChatMessage[]
+  typingStates      ChatTypingState[]
+  emailReferences   EmailMessageReference[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, currentAssigneeId])
+  @@index([workspaceId, channel, updatedAt])
+  @@index([workspaceId, customerKey])
+}
+
+model EmailMessageReference {
+  id                String             @id @default(cuid())
+  workspaceId       String
+  conversationId    String
+  messageId         String
+  inReplyTo         String?
+  source            EmailMessageSource
+  createdAt         DateTime           @default(now())
+  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation      Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, messageId])
+  @@index([conversationId, createdAt])
+  @@index([workspaceId, inReplyTo])
+}
+
+model ChatMessage {
+  id            String         @id @default(cuid())
+  workspaceId   String
+  conversationId String
+  senderType    ChatSenderType
+  senderUserId  String?
+  body          String
+  readByVisitorAt DateTime?
+  readByAgentAt DateTime?
+  createdAt     DateTime       @default(now())
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation  Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderUser    User?          @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+  @@index([workspaceId, createdAt])
+}
+
+model ChatTypingState {
+  id             String          @id @default(cuid())
+  workspaceId    String
+  conversationId String
+  actorType      TypingActorType
+  actorUserId    String?
+  updatedAt      DateTime        @updatedAt
+  createdAt      DateTime        @default(now())
+  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation   Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  actorUser      User?           @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@unique([conversationId, actorType, actorUserId])
+  @@index([conversationId, updatedAt])
+}
+
+model AssignmentEvent {
+  id             String           @id @default(cuid())
+  workspaceId    String
+  conversationId String
+  action         AssignmentAction
+  fromUserId     String?
+  toUserId       String?
+  actorUserId    String
+  reason         String?
+  createdAt      DateTime         @default(now())
+  workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  fromUser       User?            @relation("AssignmentFromUser", fields: [fromUserId], references: [id])
+  toUser         User?            @relation("AssignmentToUser", fields: [toUserId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@index([workspaceId, createdAt])
+}
+
+model AuditLog {
+  id           String      @id @default(cuid())
+  workspaceId  String?
+  actorUserId  String?
+  action       AuditAction
+  entityType   String
+  entityId     String
+  metadata     Json?
+  createdAt    DateTime    @default(now())
+  workspace    Workspace?  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor        User?       @relation("AuditActor", fields: [actorUserId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@index([actorUserId, createdAt])
+}
