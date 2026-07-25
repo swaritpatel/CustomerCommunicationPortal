@@ -4,6 +4,18 @@ import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
 
+type ChatConversationListItem = {
+  id: string;
+  subject: string;
+  customerName: string | null;
+  customerEmail: string | null;
+  status: string;
+  updatedAt: Date;
+  visitorLastSeenAt: Date | null;
+  messages: Array<{ body: string; createdAt: Date; senderType: string }>;
+  _count: { messages: number };
+};
+
 export async function GET() {
   try {
     const claims = await getSessionClaims();
@@ -35,7 +47,7 @@ export async function GET() {
       data: { lastSeenAt: new Date() },
     });
 
-    const conversations = await db.conversation.findMany({
+    const conversations: ChatConversationListItem[] = await db.conversation.findMany({
       where: {
         workspaceId: claims.workspaceId,
         channel: "CHAT_WIDGET",

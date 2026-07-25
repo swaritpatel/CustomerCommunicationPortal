@@ -104,6 +104,14 @@ async function maybeGenerateAutoReply(input: {
 
     const now = new Date();
     await db.$transaction([
+      db.chatMessage.updateMany({
+        where: {
+          conversationId: input.conversationId,
+          senderType: "VISITOR",
+          readByAgentAt: null,
+        },
+        data: { readByAgentAt: now },
+      }),
       db.chatMessage.create({
         data: {
           workspaceId: input.workspaceId,
