@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 
 import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
@@ -85,7 +86,7 @@ export async function POST(request: Request) {
         references,
       });
 
-      await db.$transaction(async (tx) => {
+      await db.$transaction(async (tx: Prisma.TransactionClient) => {
         await tx.chatMessage.create({
           data: {
             workspaceId: conversation.workspaceId,
@@ -133,7 +134,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, messageId: outbound.messageId });
     }
 
-    const message = await db.$transaction(async (tx) => {
+    const message = await db.$transaction(async (tx: Prisma.TransactionClient) => {
       const created = await tx.chatMessage.create({
         data: {
           workspaceId: conversation.workspaceId,

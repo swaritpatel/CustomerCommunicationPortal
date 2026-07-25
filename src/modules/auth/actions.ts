@@ -60,7 +60,7 @@ export async function signupAction(
   const passwordHash = await hashPassword(parsedInput.data.password);
 
   try {
-    const result = await db.$transaction(async (tx) => {
+    const result = await db.$transaction(async (tx: Prisma.TransactionClient) => {
       const user = await tx.user.create({
         data: {
           fullName: parsedInput.data.fullName,

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 
 import { db } from "@/lib/db";
 import { serverEnv } from "@/lib/env";
@@ -87,7 +88,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
     }
 
-    await db.$transaction(async (tx) => {
+    await db.$transaction(async (tx: Prisma.TransactionClient) => {
       await tx.chatMessage.create({
         data: {
           workspaceId: workspace.id,

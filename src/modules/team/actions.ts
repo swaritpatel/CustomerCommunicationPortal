@@ -2,6 +2,7 @@
 
 import { randomBytes } from "node:crypto";
 
+import type { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 
 import { db } from "@/lib/db";
@@ -77,7 +78,7 @@ export async function inviteMemberAction(formData: FormData) {
   const token = randomBytes(24).toString("hex");
   const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
 
-  await db.$transaction(async (tx) => {
+  await db.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.invite.create({
       data: {
         workspaceId: claims.workspaceId,
@@ -155,7 +156,7 @@ export async function updateMemberRoleAction(formData: FormData) {
     }
   }
 
-  await db.$transaction(async (tx) => {
+  await db.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.workspaceMember.update({
       where: { id: member.id },
       data: { role: parsed.data.role },
@@ -221,7 +222,7 @@ export async function removeMemberAction(formData: FormData) {
     }
   }
 
-  await db.$transaction(async (tx) => {
+  await db.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.workspaceMember.update({
       where: { id: member.id },
       data: {
@@ -323,7 +324,7 @@ export async function assignConversationAction(formData: FormData) {
         ? "UNASSIGNED"
         : "REASSIGNED";
 
-  await db.$transaction(async (tx) => {
+  await db.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.conversation.update({
       where: { id: conversation.id },
       data: {
