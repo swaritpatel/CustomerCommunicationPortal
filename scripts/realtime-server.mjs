@@ -1,7 +1,11 @@
 import http from "node:http";
 import { createAdapter } from "@socket.io/redis-adapter";
+import { config as loadEnv } from "dotenv";
 import { createClient } from "redis";
 import { Server } from "socket.io";
+
+loadEnv({ path: ".env.local" });
+loadEnv({ path: ".env", override: false });
 
 const port = Number.parseInt(process.env.REALTIME_PORT || process.env.PORT || "3001", 10);
 const internalSecret = process.env.REALTIME_INTERNAL_SECRET || "dev-realtime-secret";
