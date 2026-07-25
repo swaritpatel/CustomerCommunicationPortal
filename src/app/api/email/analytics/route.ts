@@ -7,6 +7,20 @@ import { chatLog } from "@/modules/chat/log";
 const FIRST_RESPONSE_TARGET_MINUTES = 15;
 const RESOLUTION_TARGET_HOURS = 24;
 
+type AnalyticsMessageItem = {
+  senderType: string;
+  createdAt: Date;
+};
+
+type EmailAnalyticsConversation = {
+  id: string;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+  currentAssigneeId: string | null;
+  messages: AnalyticsMessageItem[];
+};
+
 function median(values: number[]) {
   if (values.length === 0) {
     return 0;
@@ -42,7 +56,7 @@ export async function GET() {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const conversations = await db.conversation.findMany({
+    const conversations: EmailAnalyticsConversation[] = await db.conversation.findMany({
       where: {
         workspaceId: claims.workspaceId,
         channel: "EMAIL",
@@ -73,8 +87,8 @@ export async function GET() {
     let resolvedCount = 0;
 
     for (const conversation of conversations) {
-      const firstVisitor = conversation.messages.find((message) => message.senderType === "VISITOR");
-      const firstAgent = conversation.messages.find((message) => message.senderType === "AGENT");
+      const firstVisitor = conversation.messages.find((message: AnalyticsMessageItem) => message.senderType === "VISITOR");
+      const firstAgent = conversation.messages.find((message: AnalyticsMessageItem) => message.senderType === "AGENT");
 
       if (firstVisitor) {
         const hour = firstVisitor.createdAt.getHours();

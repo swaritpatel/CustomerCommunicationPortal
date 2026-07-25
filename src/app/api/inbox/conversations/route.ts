@@ -10,22 +10,53 @@ const RESOLUTION_TARGET_HOURS = 24;
 const channels = ["EMAIL", "CHAT_WIDGET"] as const;
 const statuses = ["OPEN", "SNOOZED", "RESOLVED"] as const;
 
+type SlaMessageItem = {
+  senderType: string;
+  createdAt: Date;
+};
+
+type InboxMemberItem = {
+  userId: string;
+  role: string;
+  user: {
+    id: string;
+    fullName: string;
+    email: string;
+  };
+};
+
+type InboxConversationListItem = {
+  id: string;
+  createdAt: Date;
+  updatedAt: Date;
+  subject: string;
+  channel: ConversationChannel;
+  customerName: string | null;
+  customerEmail: string | null;
+  visitorLastSeenAt: Date | null;
+  status: ConversationStatus;
+  currentAssigneeId: string | null;
+  currentAssignee: { id: string; fullName: string; email: string } | null;
+  messages: Array<{ body: string; senderType: string; createdAt: Date }>;
+  _count: { messages: number };
+};
+
 function parseChannel(value: string | null): ConversationChannel | null {
-  return channels.some((channel) => channel === value) ? (value as ConversationChannel) : null;
+  return channels.some((channel: (typeof channels)[number]) => channel === value) ? (value as ConversationChannel) : null;
 }
 
 function parseStatus(value: string | null): ConversationStatus | null {
-  return statuses.some((status) => status === value) ? (value as ConversationStatus) : null;
+  return statuses.some((status: (typeof statuses)[number]) => status === value) ? (value as ConversationStatus) : null;
 }
 
 function buildSla(conversation: {
   createdAt: Date;
   updatedAt: Date;
   status: ConversationStatus;
-  messages: Array<{ senderType: string; createdAt: Date }>;
+  messages: SlaMessageItem[];
 }) {
-  const firstVisitor = conversation.messages.find((message) => message.senderType === "VISITOR");
-  const firstAgent = conversation.messages.find((message) => message.senderType === "AGENT");
+  const firstVisitor = conversation.messages.find((message: SlaMessageItem) => message.senderType === "VISITOR");
+  const firstAgent = conversation.messages.find((message: SlaMessageItem) => message.senderType === "AGENT");
   const now = Date.now();
 
   const firstResponseMinutes =
@@ -89,7 +120,7 @@ export async function GET(request: Request) {
             ? { currentAssigneeId: assignee }
             : {};
 
-    const [conversations, members] = await Promise.all([
+    const [conversations, members]: [InboxConversationListItem[], InboxMemberItem[]] = await Promise.all([
       db.conversation.findMany({
         where: {
           workspaceId: claims.workspaceId,
@@ -159,13 +190,13 @@ export async function GET(request: Request) {
         id: claims.sub,
         role: claims.role,
       },
-      members: members.map((member) => ({
+      members: members.map((member: InboxMemberItem) => ({
         id: member.userId,
         fullName: member.user.fullName,
         email: member.user.email,
         role: member.role,
       })),
-      conversations: conversations.map((conversation) => {
+      conversations: conversations.map((conversation: InboxConversationListItem) => {
         const latestMessage =
           conversation.messages.length > 0 ? conversation.messages[conversation.messages.length - 1] : null;
         const sla = buildSla(conversation);

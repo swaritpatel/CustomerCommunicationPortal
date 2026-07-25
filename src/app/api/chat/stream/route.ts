@@ -8,6 +8,22 @@ import { chatLog } from "@/modules/chat/log";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type ChatTypingEntry = {
+  actorType: "VISITOR" | "AGENT";
+  actorUserId: string | null;
+};
+
+type SnapshotMessageItem = {
+  id: string;
+  senderType: "VISITOR" | "AGENT" | "SYSTEM";
+  senderUserId: string | null;
+  body: string;
+  createdAt: Date;
+  readByVisitorAt: Date | null;
+  readByAgentAt: Date | null;
+  senderUser: { fullName: string } | null;
+};
+
 async function resolveActor(request: Request) {
   const url = new URL(request.url);
   const queryToken = url.searchParams.get("token");
@@ -33,7 +49,12 @@ async function buildSnapshot(
   viewerKind: "AGENT" | "VISITOR",
   viewerUserId: string | null,
 ) {
-  const [messages, typing, onlineAgents, refreshedConversation] = await Promise.all([
+  const [messages, typing, onlineAgents, refreshedConversation]: [
+    SnapshotMessageItem[],
+    ChatTypingEntry[],
+    number,
+    { visitorLastSeenAt: Date | null } | null,
+  ] = await Promise.all([
     db.chatMessage.findMany({
       where: { conversationId },
       orderBy: { createdAt: "asc" },
@@ -78,11 +99,11 @@ async function buildSnapshot(
       visitorOnline:
         refreshedConversation?.visitorLastSeenAt != null &&
         refreshedConversation.visitorLastSeenAt.getTime() > Date.now() - 45_000,
-      visitorTyping: typing.some((entry) => entry.actorType === "VISITOR"),
+      visitorTyping: typing.some((entry: ChatTypingEntry) => entry.actorType === "VISITOR"),
       agentTyping:
         viewerKind === "AGENT"
-          ? typing.some((entry) => entry.actorType === "AGENT" && entry.actorUserId !== viewerUserId)
-          : typing.some((entry) => entry.actorType === "AGENT"),
+          ? typing.some((entry: ChatTypingEntry) => entry.actorType === "AGENT" && entry.actorUserId !== viewerUserId)
+          : typing.some((entry: ChatTypingEntry) => entry.actorType === "AGENT"),
     },
   };
 }

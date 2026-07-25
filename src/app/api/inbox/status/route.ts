@@ -8,7 +8,7 @@ const allowedStatuses = ["OPEN", "SNOOZED", "RESOLVED"] as const;
 type InboxStatus = (typeof allowedStatuses)[number];
 
 function isInboxStatus(value: string | undefined): value is InboxStatus {
-  return allowedStatuses.some((status) => status === value);
+  return allowedStatuses.some((status: InboxStatus) => status === value);
 }
 
 export async function POST(request: Request) {

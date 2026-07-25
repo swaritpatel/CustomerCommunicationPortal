@@ -7,6 +7,7 @@ import { chatLog } from "@/modules/chat/log";
 import { toWorkspaceSlug } from "@/modules/workspaces/slug";
 
 const allowedArticleStatuses = ["DRAFT", "PUBLISHED"] as const;
+type AllowedArticleStatus = (typeof allowedArticleStatuses)[number];
 
 function stripTags(value: string) {
   return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
@@ -234,7 +235,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Article title is required" }, { status: 400 });
       }
 
-      const status = allowedArticleStatuses.some((item) => item === body.status)
+      const status = allowedArticleStatuses.some((item: AllowedArticleStatus) => item === body.status)
         ? body.status
         : "DRAFT";
       const contentHtml = sanitizeRichText(body.contentHtml?.trim() || "<p></p>");

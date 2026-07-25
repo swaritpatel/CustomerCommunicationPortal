@@ -81,7 +81,7 @@ export async function GET() {
     });
 
     return NextResponse.json({
-      conversations: conversations.map((conversation) => ({
+      conversations: conversations.map((conversation: ChatConversationListItem) => ({
         id: conversation.id,
         subject: conversation.subject,
         customerName: conversation.customerName,

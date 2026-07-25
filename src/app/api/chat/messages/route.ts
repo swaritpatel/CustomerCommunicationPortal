@@ -13,6 +13,12 @@ type RecentChatMessage = {
   senderUser: { fullName: string } | null;
 };
 
+type ChatTypingEntry = {
+  actorType: "VISITOR" | "AGENT";
+  actorUserId: string | null;
+  updatedAt: Date;
+};
+
 async function resolveActor(request: Request) {
   const bearer = readBearerToken(request.headers.get("authorization"));
   if (bearer) {
@@ -237,7 +243,12 @@ export async function GET(request: Request) {
       ]);
     }
 
-    const [messages, typing, onlineAgents, refreshedConversation] = await Promise.all([
+    const [messages, typing, onlineAgents, refreshedConversation]: [
+      unknown,
+      ChatTypingEntry[],
+      number,
+      { visitorLastSeenAt: Date | null } | null,
+    ] = await Promise.all([
       db.chatMessage.findMany({
         where: { conversationId: conversation.id },
         orderBy: { createdAt: "asc" },
@@ -284,11 +295,11 @@ export async function GET(request: Request) {
         visitorOnline:
           refreshedConversation?.visitorLastSeenAt != null &&
           refreshedConversation.visitorLastSeenAt.getTime() > Date.now() - 45_000,
-        visitorTyping: typing.some((entry) => entry.actorType === "VISITOR"),
+        visitorTyping: typing.some((entry: ChatTypingEntry) => entry.actorType === "VISITOR"),
         agentTyping:
           actor.kind === "AGENT"
-            ? typing.some((entry) => entry.actorType === "AGENT" && entry.actorUserId !== viewerUserId)
-            : typing.some((entry) => entry.actorType === "AGENT"),
+            ? typing.some((entry: ChatTypingEntry) => entry.actorType === "AGENT" && entry.actorUserId !== viewerUserId)
+            : typing.some((entry: ChatTypingEntry) => entry.actorType === "AGENT"),
       },
     });
   } catch (error) {

@@ -20,6 +20,12 @@ type EmailConversationListItem = {
   _count: { messages: number };
 };
 
+type EmailConversationMessageItem = {
+  body: string;
+  senderType: string;
+  createdAt: Date;
+};
+
 export async function GET() {
   try {
     const claims = await getSessionClaims();
@@ -78,9 +84,9 @@ export async function GET() {
     return NextResponse.json({
       conversations: conversations.map((conversation: EmailConversationListItem) => {
         const firstVisitor = conversation.messages.find(
-          (message) => message.senderType === "VISITOR",
+          (message: EmailConversationMessageItem) => message.senderType === "VISITOR",
         );
-        const firstAgent = conversation.messages.find((message) => message.senderType === "AGENT");
+        const firstAgent = conversation.messages.find((message: EmailConversationMessageItem) => message.senderType === "AGENT");
         const latestMessage =
           conversation.messages.length > 0 ? conversation.messages[conversation.messages.length - 1] : null;
 
