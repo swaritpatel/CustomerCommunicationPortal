@@ -6,7 +6,8 @@ import { requireActiveMembership } from "@/modules/auth/guards";
 const navigation = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/chat", label: "Live Chat" },
-  { href: "/inbox", label: "Email Inbox" },
+  { href: "/inbox", label: "Unified Inbox" },
+  { href: "/knowledge-base", label: "Knowledge Base" },
   { href: "/team", label: "Team" },
   { href: "/team#invites", label: "Invites" },
   { href: "/team#assignment", label: "Assignment" },

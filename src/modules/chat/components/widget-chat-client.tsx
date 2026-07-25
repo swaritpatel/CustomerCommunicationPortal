@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import type { Socket } from "socket.io-client";
+
+import { connectConversationSocket } from "@/modules/realtime/client";
 
 type Message = {
   id: string;
@@ -21,6 +24,13 @@ type ChatMeta = {
   agentTyping: boolean;
 };
 
+type KbSuggestion = {
+  id: string;
+  title: string;
+  excerpt: string | null;
+  href: string;
+};
+
 export function WidgetChatClient() {
   const searchParams = useSearchParams();
   const workspace = searchParams.get("workspace") ?? "";
@@ -37,16 +47,44 @@ export function WidgetChatClient() {
     agentTyping: false,
   });
   const [text, setText] = useState("");
+  const [suggestions, setSuggestions] = useState<KbSuggestion[]>([]);
   const [isSending, setIsSending] = useState(false);
   const typingDebounceRef = useRef<number | null>(null);
   const lastTypingValueRef = useRef(false);
+  const streamRef = useRef<EventSource | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const socketHealthyRef = useRef(false);
+  const streamHealthyRef = useRef(false);
+  const lastStreamEventAtRef = useRef(0);
+
+  const dedupeMessages = (items: Message[]) => {
+    const seen = new Set<string>();
+    const result: Message[] = [];
+    for (const message of items) {
+      if (!seen.has(message.id)) {
+        seen.add(message.id);
+        result.push(message);
+      }
+    }
+    return result;
+  };
 
   useEffect(() => {
     if (!workspace) {
       return;
     }
 
+    const cacheConversationId = window.localStorage.getItem(`${storagePrefix}.conversationId`) ?? "";
+    const cacheVisitorToken = window.localStorage.getItem(`${storagePrefix}.visitorToken`) ?? "";
     const savedCustomerKey = window.localStorage.getItem(`${storagePrefix}.customerKey`) ?? "";
+
+    if (cacheConversationId && cacheVisitorToken) {
+      queueMicrotask(() => {
+        setConversationId(cacheConversationId);
+        setVisitorToken(cacheVisitorToken);
+      });
+      return;
+    }
 
     void fetch("/api/chat/bootstrap", {
       method: "POST",
@@ -65,8 +103,9 @@ export function WidgetChatClient() {
       .then((payload) => {
         setConversationId(payload.conversationId);
         setVisitorToken(payload.visitorToken);
-        setMessages(payload.messages ?? []);
+        setMessages(dedupeMessages(payload.messages ?? []));
         setMeta((previous) => ({ ...previous, agentOnline: Boolean(payload.agentOnline) }));
+        window.localStorage.setItem(`${storagePrefix}.conversationId`, payload.conversationId);
         window.localStorage.setItem(`${storagePrefix}.customerKey`, payload.customerKey);
         window.localStorage.setItem(`${storagePrefix}.visitorToken`, payload.visitorToken);
       })
@@ -76,11 +115,44 @@ export function WidgetChatClient() {
   }, [workspace, storagePrefix]);
 
   useEffect(() => {
+    const query = text.trim();
+    if (!workspace || query.length < 3) {
+      const timeout = window.setTimeout(() => setSuggestions([]), 0);
+      return () => window.clearTimeout(timeout);
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      void fetch(`/api/kb/suggest?workspace=${encodeURIComponent(workspace)}&q=${encodeURIComponent(query)}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            return { suggestions: [] };
+          }
+          return response.json();
+        })
+        .then((payload) => {
+          setSuggestions((payload.suggestions ?? []) as KbSuggestion[]);
+        })
+        .catch((error: unknown) => {
+          if ((error as { name?: string }).name !== "AbortError") {
+            console.error("[chat:kb_suggest_failed]", error);
+          }
+        });
+    }, 260);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [workspace, text]);
+
+  useEffect(() => {
     if (!conversationId || !visitorToken) {
       return;
     }
-
-    let source: EventSource | null = null;
 
     const sync = async () => {
       const response = await fetch(`/api/chat/messages?conversationId=${conversationId}`, {
@@ -94,21 +166,35 @@ export function WidgetChatClient() {
       if (!response || !response.ok) {
         if (response && !response.ok) {
           console.warn("[chat:widget_sync_bad_status]", response.status);
+          if (response.status === 401 || response.status === 403) {
+            window.localStorage.removeItem(`${storagePrefix}.conversationId`);
+            window.localStorage.removeItem(`${storagePrefix}.visitorToken`);
+            setConversationId("");
+            setVisitorToken("");
+          }
         }
         return;
       }
 
       const payload = await response.json();
-      setMessages(payload.messages ?? []);
+      setMessages(dedupeMessages(payload.messages ?? []));
       setMeta((previous) => payload.meta ?? previous);
     };
 
     const connectStream = () => {
-      source = new EventSource(
+      streamRef.current?.close();
+      const source = new EventSource(
         `/api/chat/stream?conversationId=${encodeURIComponent(conversationId)}&token=${encodeURIComponent(visitorToken)}`,
       );
+      streamRef.current = source;
+
+      source.onopen = () => {
+        streamHealthyRef.current = true;
+        lastStreamEventAtRef.current = Date.now();
+      };
 
       source.onerror = (error) => {
+        streamHealthyRef.current = false;
         console.warn("[chat:widget_stream_error]", error);
       };
 
@@ -117,24 +203,51 @@ export function WidgetChatClient() {
           messages?: Message[];
           meta?: ChatMeta;
         };
-        setMessages(payload.messages ?? []);
+        lastStreamEventAtRef.current = Date.now();
+        streamHealthyRef.current = true;
+        setMessages(dedupeMessages(payload.messages ?? []));
         setMeta((previous) => payload.meta ?? previous);
       });
     };
 
+    const connectSocket = () => {
+      socketRef.current?.disconnect();
+      socketHealthyRef.current = false;
+      socketRef.current = connectConversationSocket({
+        conversationId,
+        onState: (state) => {
+          socketHealthyRef.current = state === "connected";
+        },
+        onEvent: (event) => {
+          if (event.conversationId === conversationId) {
+            void sync();
+          }
+        },
+      });
+    };
+
+    connectSocket();
     connectStream();
     void sync();
 
     const interval = window.setInterval(() => {
-      // Slow polling fallback keeps chat healthy if SSE reconnects are delayed.
-      void sync();
+      const streamStale = Date.now() - lastStreamEventAtRef.current > 20_000;
+      if (!socketHealthyRef.current && (!streamHealthyRef.current || streamStale)) {
+        // Fallback polling only when stream appears unhealthy.
+        void sync();
+      }
     }, 12_000);
 
     return () => {
-      source?.close();
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+      socketHealthyRef.current = false;
+      streamRef.current?.close();
+      streamRef.current = null;
+      streamHealthyRef.current = false;
       window.clearInterval(interval);
     };
-  }, [conversationId, visitorToken]);
+  }, [conversationId, visitorToken, storagePrefix]);
 
   const sendTyping = useCallback(async (isTyping: boolean) => {
     if (!conversationId || !visitorToken) {
@@ -200,6 +313,7 @@ export function WidgetChatClient() {
       });
 
       setText("");
+      setSuggestions([]);
       await sendTyping(false);
     } finally {
       setIsSending(false);
@@ -245,8 +359,12 @@ export function WidgetChatClient() {
               <p className="author">{message.senderType === "VISITOR" ? "You" : agentDisplayName(message)}</p>
               <p>{message.body}</p>
               {message.senderType === "VISITOR" ? (
-                <small className={message.readByAgentAt ? "ticks read" : "ticks sent"}>
-                  ✓✓
+                <small className={`status-meta ${message.readByAgentAt ? "read" : "sent"}`}>
+                  <span className="tick-group" aria-label={message.readByAgentAt ? "Read" : "Sent"}>
+                    <span className="tick first">✓</span>
+                    <span className="tick second">✓</span>
+                  </span>
+                  <span className="status-label">{message.readByAgentAt ? "Read" : "Sent"}</span>
                 </small>
               ) : null}
             </div>
@@ -266,6 +384,25 @@ export function WidgetChatClient() {
       </div>
 
       <footer className="widget-compose">
+        {suggestions.length > 0 ? (
+          <div className="kb-suggestions" aria-label="Suggested help articles">
+            <span className="kb-label">Suggested articles</span>
+            {suggestions.map((suggestion) => (
+              <button
+                key={suggestion.id}
+                className="kb-suggestion"
+                type="button"
+                onClick={() => {
+                  const href = `${window.location.origin}${suggestion.href}`;
+                  window.open(href, "_blank", "noopener,noreferrer");
+                }}
+              >
+                <strong>{suggestion.title}</strong>
+                {suggestion.excerpt ? <span>{suggestion.excerpt}</span> : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <textarea
           value={text}
           onChange={(event) => {
@@ -393,6 +530,7 @@ export function WidgetChatClient() {
         .bubble p {
           margin: 0;
           white-space: pre-wrap;
+          overflow-wrap: anywhere;
           line-height: 1.35;
         }
         .bubble small {
@@ -401,16 +539,64 @@ export function WidgetChatClient() {
           font-size: 11px;
           opacity: 0.9;
         }
+        .status-meta {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          justify-content: flex-end;
+          width: 100%;
+        }
+        .status-label {
+          font-size: 10px;
+          letter-spacing: 0.02em;
+          opacity: 0.9;
+        }
+        .tick-group {
+          display: inline-flex;
+          align-items: center;
+          line-height: 1;
+          transform-origin: center;
+        }
+        .tick {
+          font-size: 12px;
+          font-weight: 700;
+          display: inline-block;
+          transition: color 180ms ease, transform 180ms ease, opacity 180ms ease;
+        }
+        .tick.second {
+          margin-left: -3px;
+        }
+        .status-meta.sent .tick-group {
+          transform: translateY(0);
+        }
+        .status-meta.sent .tick.first {
+          color: rgba(255, 255, 255, 0.82);
+          opacity: 1;
+        }
+        .status-meta.sent .tick.second {
+          opacity: 0;
+          width: 0;
+          overflow: hidden;
+          color: rgba(255, 255, 255, 0.82);
+        }
+        .status-meta.sent .status-label {
+          color: rgba(255, 255, 255, 0.86);
+        }
+        .status-meta.read .tick-group {
+          animation: tick-pop 280ms cubic-bezier(0.17, 0.84, 0.44, 1) both;
+        }
+        .status-meta.read .tick.first,
+        .status-meta.read .tick.second {
+          color: #36a3ff;
+          opacity: 1;
+          width: auto;
+        }
+        .status-meta.read .status-label {
+          color: #36a3ff;
+          opacity: 1;
+        }
         .ticks {
           text-align: right;
-        }
-        .ticks.sent {
-          color: rgba(255, 255, 255, 0.75);
-        }
-        .ticks.read {
-          color: #36a3ff;
-          font-weight: 700;
-          transition: color 180ms ease-in;
         }
         .typing-pill {
           display: inline-flex;
@@ -442,6 +628,45 @@ export function WidgetChatClient() {
           grid-template-columns: 1fr auto;
           gap: 8px;
         }
+        .kb-suggestions {
+          grid-column: 1 / -1;
+          display: grid;
+          gap: 6px;
+          border: 1px solid #eadbcb;
+          border-radius: 14px;
+          background: #fffaf4;
+          padding: 8px;
+        }
+        .kb-label {
+          color: #7d6b59;
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+        }
+        .kb-suggestion {
+          border: 1px solid #eadbcb;
+          border-radius: 12px;
+          background: #fff;
+          color: #2c2118;
+          cursor: pointer;
+          display: grid;
+          gap: 2px;
+          padding: 8px;
+          text-align: left;
+        }
+        .kb-suggestion strong {
+          font-size: 12px;
+        }
+        .kb-suggestion span {
+          color: #7d6b59;
+          font-size: 11px;
+          line-height: 1.35;
+          overflow: hidden;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+        }
         textarea {
           resize: none;
           border: 1px solid #d8c7b3;
@@ -463,6 +688,16 @@ export function WidgetChatClient() {
           opacity: 0.55;
           cursor: not-allowed;
         }
+        .widget-compose .kb-suggestion {
+          border: 1px solid #eadbcb;
+          border-radius: 12px;
+          background: #fff;
+          color: #2c2118;
+          display: grid;
+          gap: 2px;
+          padding: 8px;
+          text-align: left;
+        }
         @keyframes pulse {
           0%,
           80%,
@@ -473,6 +708,20 @@ export function WidgetChatClient() {
           40% {
             transform: translateY(-2px);
             opacity: 1;
+          }
+        }
+        @keyframes tick-pop {
+          0% {
+            transform: scale(0.9) translateY(1px);
+            filter: drop-shadow(0 0 0 rgba(54, 163, 255, 0));
+          }
+          60% {
+            transform: scale(1.12) translateY(-1px);
+            filter: drop-shadow(0 0 8px rgba(54, 163, 255, 0.55));
+          }
+          100% {
+            transform: scale(1) translateY(0);
+            filter: drop-shadow(0 0 0 rgba(54, 163, 255, 0));
           }
         }
       `}</style>

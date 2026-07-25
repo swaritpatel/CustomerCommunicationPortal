@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "realtime": "node scripts/realtime-server.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "email:verify": "node scripts/verify-email-channel.mjs",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate"
   },
@@ -21,6 +23,8 @@
     "pg": "^8.22.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -76,58 +76,80 @@ enum AuditAction {
   CONVERSATION_UNASSIGNED
 }
 
+enum KnowledgeBaseArticleStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum CustomDomainStatus {
+  PENDING
+  VERIFIED
+  FAILED
+}
+
+enum CustomDomainSslStatus {
+  PENDING
+  PROVISIONING
+  ACTIVE
+  FAILED
+}
+
 model User {
-  id                String             @id @default(cuid())
-  fullName          String
-  email             String             @unique
-  passwordHash      String
-  emailVerifiedAt   DateTime?
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  memberships       WorkspaceMember[]
-  ownedWorkspaces   Workspace[]        @relation("WorkspaceOwner")
-  invitesAccepted   Invite[]           @relation("InviteAcceptedBy")
-  issuedSessions    Session[]
-  authoredAuditLogs AuditLog[]         @relation("AuditActor")
-  assignedConversations Conversation[] @relation("ConversationAssignee")
-  assignmentEventsFrom AssignmentEvent[] @relation("AssignmentFromUser")
-  assignmentEventsTo   AssignmentEvent[] @relation("AssignmentToUser")
-  chatMessages      ChatMessage[]
-  typingStates      ChatTypingState[]
+  id                    String                 @id @default(cuid())
+  fullName              String
+  email                 String                 @unique
+  passwordHash          String
+  emailVerifiedAt       DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  memberships           WorkspaceMember[]
+  ownedWorkspaces       Workspace[]            @relation("WorkspaceOwner")
+  invitesAccepted       Invite[]               @relation("InviteAcceptedBy")
+  issuedSessions        Session[]
+  authoredAuditLogs     AuditLog[]             @relation("AuditActor")
+  assignedConversations Conversation[]         @relation("ConversationAssignee")
+  assignmentEventsFrom  AssignmentEvent[]      @relation("AssignmentFromUser")
+  assignmentEventsTo    AssignmentEvent[]      @relation("AssignmentToUser")
+  chatMessages          ChatMessage[]
+  typingStates          ChatTypingState[]
+  knowledgeBaseArticles KnowledgeBaseArticle[]
 }
 
 model Workspace {
-  id              String            @id @default(cuid())
-  name            String
-  slug            String            @unique
-  ownerId         String
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  owner           User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
-  members         WorkspaceMember[]
-  invites         Invite[]
-  auditLogs       AuditLog[]
-  conversations   Conversation[]
-  assignmentEvents AssignmentEvent[]
-  chatMessages    ChatMessage[]
-  typingStates    ChatTypingState[]
-  emailReferences EmailMessageReference[]
+  id                      String                  @id @default(cuid())
+  name                    String
+  slug                    String                  @unique
+  ownerId                 String
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+  owner                   User                    @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members                 WorkspaceMember[]
+  invites                 Invite[]
+  auditLogs               AuditLog[]
+  conversations           Conversation[]
+  assignmentEvents        AssignmentEvent[]
+  chatMessages            ChatMessage[]
+  typingStates            ChatTypingState[]
+  emailReferences         EmailMessageReference[]
+  knowledgeBaseCategories KnowledgeBaseCategory[]
+  knowledgeBaseArticles   KnowledgeBaseArticle[]
+  knowledgeBaseDomains    KnowledgeBaseDomain[]
 }
 
 model WorkspaceMember {
-  id            String         @id @default(cuid())
-  workspaceId   String
-  userId        String
-  role          WorkspaceRole
-  status        MemberStatus   @default(ACTIVE)
-  lastSeenAt    DateTime?
-  invitedAt     DateTime?
-  joinedAt      DateTime?
-  removedAt     DateTime?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String        @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole
+  status      MemberStatus  @default(ACTIVE)
+  lastSeenAt  DateTime?
+  invitedAt   DateTime?
+  joinedAt    DateTime?
+  removedAt   DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, userId])
   @@index([userId])
@@ -135,56 +157,56 @@ model WorkspaceMember {
 }
 
 model Invite {
-  id             String         @id @default(cuid())
-  workspaceId    String
-  email          String
-  role           WorkspaceRole
-  token          String         @unique
-  status         InviteStatus   @default(PENDING)
-  expiresAt      DateTime
-  acceptedAt     DateTime?
-  acceptedById   String?
-  revokedAt      DateTime?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  acceptedBy     User?          @relation("InviteAcceptedBy", fields: [acceptedById], references: [id])
+  id           String        @id @default(cuid())
+  workspaceId  String
+  email        String
+  role         WorkspaceRole
+  token        String        @unique
+  status       InviteStatus  @default(PENDING)
+  expiresAt    DateTime
+  acceptedAt   DateTime?
+  acceptedById String?
+  revokedAt    DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  acceptedBy   User?         @relation("InviteAcceptedBy", fields: [acceptedById], references: [id])
 
   @@index([workspaceId, email])
   @@index([workspaceId, status])
 }
 
 model Session {
-  id                String    @id @default(cuid())
-  userId            String
-  refreshTokenHash  String
-  userAgent         String?
-  ipAddress         String?
-  expiresAt         DateTime
-  revokedAt         DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String    @id @default(cuid())
+  userId           String
+  refreshTokenHash String
+  userAgent        String?
+  ipAddress        String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
 }
 
 model Conversation {
-  id                String              @id @default(cuid())
+  id                String                  @id @default(cuid())
   workspaceId       String
   subject           String
-  channel           ConversationChannel  @default(CHAT_WIDGET)
+  channel           ConversationChannel     @default(CHAT_WIDGET)
   customerKey       String?
   customerName      String?
   customerEmail     String?
   visitorLastSeenAt DateTime?
-  status            ConversationStatus  @default(OPEN)
+  status            ConversationStatus      @default(OPEN)
   currentAssigneeId String?
-  ownershipVersion  Int                 @default(0)
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
-  workspace         Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  currentAssignee   User?               @relation("ConversationAssignee", fields: [currentAssigneeId], references: [id])
+  ownershipVersion  Int                     @default(0)
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  workspace         Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  currentAssignee   User?                   @relation("ConversationAssignee", fields: [currentAssigneeId], references: [id])
   assignmentEvents  AssignmentEvent[]
   messages          ChatMessage[]
   typingStates      ChatTypingState[]
@@ -197,15 +219,15 @@ model Conversation {
 }
 
 model EmailMessageReference {
-  id                String             @id @default(cuid())
-  workspaceId       String
-  conversationId    String
-  messageId         String
-  inReplyTo         String?
-  source            EmailMessageSource
-  createdAt         DateTime           @default(now())
-  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  conversation      Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  id             String             @id @default(cuid())
+  workspaceId    String
+  conversationId String
+  messageId      String
+  inReplyTo      String?
+  source         EmailMessageSource
+  createdAt      DateTime           @default(now())
+  workspace      Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation   Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, messageId])
   @@index([conversationId, createdAt])
@@ -213,18 +235,18 @@ model EmailMessageReference {
 }
 
 model ChatMessage {
-  id            String         @id @default(cuid())
-  workspaceId   String
-  conversationId String
-  senderType    ChatSenderType
-  senderUserId  String?
-  body          String
+  id              String         @id @default(cuid())
+  workspaceId     String
+  conversationId  String
+  senderType      ChatSenderType
+  senderUserId    String?
+  body            String
   readByVisitorAt DateTime?
-  readByAgentAt DateTime?
-  createdAt     DateTime       @default(now())
-  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  conversation  Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  senderUser    User?          @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
+  readByAgentAt   DateTime?
+  createdAt       DateTime       @default(now())
+  workspace       Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation    Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderUser      User?          @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
 
   @@index([conversationId, createdAt])
   @@index([workspaceId, createdAt])
@@ -266,17 +288,73 @@ model AssignmentEvent {
 }
 
 model AuditLog {
-  id           String      @id @default(cuid())
-  workspaceId  String?
-  actorUserId  String?
-  action       AuditAction
-  entityType   String
-  entityId     String
-  metadata     Json?
-  createdAt    DateTime    @default(now())
-  workspace    Workspace?  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  actor        User?       @relation("AuditActor", fields: [actorUserId], references: [id])
+  id          String      @id @default(cuid())
+  workspaceId String?
+  actorUserId String?
+  action      AuditAction
+  entityType  String
+  entityId    String
+  metadata    Json?
+  createdAt   DateTime    @default(now())
+  workspace   Workspace?  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor       User?       @relation("AuditActor", fields: [actorUserId], references: [id])
 
   @@index([workspaceId, createdAt])
   @@index([actorUserId, createdAt])
+}
+
+model KnowledgeBaseCategory {
+  id          String                 @id @default(cuid())
+  workspaceId String
+  title       String
+  slug        String
+  description String?
+  sortOrder   Int                    @default(0)
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  articles    KnowledgeBaseArticle[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, sortOrder])
+}
+
+model KnowledgeBaseArticle {
+  id           String                     @id @default(cuid())
+  workspaceId  String
+  categoryId   String?
+  authorUserId String?
+  title        String
+  slug         String
+  excerpt      String?
+  contentHtml  String
+  status       KnowledgeBaseArticleStatus @default(DRAFT)
+  publishedAt  DateTime?
+  createdAt    DateTime                   @default(now())
+  updatedAt    DateTime                   @updatedAt
+  workspace    Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  category     KnowledgeBaseCategory?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  author       User?                      @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, status, updatedAt])
+  @@index([workspaceId, categoryId])
+}
+
+model KnowledgeBaseDomain {
+  id                String                @id @default(cuid())
+  workspaceId       String
+  hostname          String                @unique
+  status            CustomDomainStatus    @default(PENDING)
+  sslStatus         CustomDomainSslStatus @default(PENDING)
+  verificationToken String
+  verifiedAt        DateTime?
+  lastCheckedAt     DateTime?
+  failureReason     String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  workspace         Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([hostname, status])
 }

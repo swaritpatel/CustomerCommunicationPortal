@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type EmailConversation = {
   id: string;
@@ -104,6 +104,7 @@ export function AgentEmailClient() {
   const [text, setText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isDrafting, setIsDrafting] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsPayload | null>(null);
   const [cannedResponses, setCannedResponses] = useState<CannedResponse[]>(readStoredCannedResponses);
@@ -119,93 +120,112 @@ export function AgentEmailClient() {
     window.localStorage.setItem("relaydesk.cannedResponses", JSON.stringify(cannedResponses));
   }, [cannedResponses]);
 
-  useEffect(() => {
-    const load = async () => {
-      const response = await fetch("/api/email/conversations", { cache: "no-store" }).catch(() => null);
-      if (!response || !response.ok) {
-        return;
-      }
+  const loadConversations = useCallback(async () => {
+    const response = await fetch("/api/email/conversations", { cache: "no-store" }).catch(() => null);
+    if (!response || !response.ok) {
+      return;
+    }
 
-      const payload = await response.json();
-      const items = payload.conversations ?? [];
-      setConversations(items);
-      if (!activeId && items.length > 0) {
-        setActiveId(items[0].id);
-      }
-    };
-
-    void load();
-    const interval = window.setInterval(() => {
-      void load();
-    }, 8_000);
-
-    return () => window.clearInterval(interval);
+    const payload = await response.json();
+    const items = payload.conversations ?? [];
+    setConversations(items);
+    if (!activeId && items.length > 0) {
+      setActiveId(items[0].id);
+    }
   }, [activeId]);
 
+  const loadAnalytics = useCallback(async () => {
+    const response = await fetch("/api/email/analytics", { cache: "no-store" }).catch(() => null);
+    if (!response || !response.ok) {
+      return;
+    }
+
+    const payload = (await response.json()) as AnalyticsPayload;
+    setAnalytics(payload);
+  }, []);
+
+  const loadMessages = useCallback(async (conversationId: string) => {
+    const response = await fetch(`/api/email/messages?conversationId=${conversationId}`, {
+      cache: "no-store",
+    }).catch(() => null);
+    if (!response || !response.ok) {
+      return;
+    }
+
+    const payload = await response.json();
+    setMessages(payload.messages ?? []);
+  }, []);
+
+  const loadTimeline = useCallback(async (conversationId: string) => {
+    const response = await fetch(`/api/email/contact-timeline?conversationId=${conversationId}`, {
+      cache: "no-store",
+    }).catch(() => null);
+
+    if (!response || !response.ok) {
+      return;
+    }
+
+    const payload = await response.json();
+    setTimeline(payload.events ?? []);
+  }, []);
+
   useEffect(() => {
-    const loadAnalytics = async () => {
-      const response = await fetch("/api/email/analytics", { cache: "no-store" }).catch(() => null);
-      if (!response || !response.ok) {
-        return;
-      }
+    const timeout = window.setTimeout(() => {
+      void loadConversations();
+    }, 0);
+    const interval = window.setInterval(() => {
+      void loadConversations();
+    }, 8_000);
 
-      const payload = (await response.json()) as AnalyticsPayload;
-      setAnalytics(payload);
+    return () => {
+      window.clearTimeout(timeout);
+      window.clearInterval(interval);
     };
+  }, [loadConversations]);
 
-    void loadAnalytics();
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadAnalytics();
+    }, 0);
     const interval = window.setInterval(() => {
       void loadAnalytics();
     }, 20_000);
 
-    return () => window.clearInterval(interval);
-  }, []);
+    return () => {
+      window.clearTimeout(timeout);
+      window.clearInterval(interval);
+    };
+  }, [loadAnalytics]);
 
   useEffect(() => {
     if (!activeId) {
       return;
     }
 
-    const loadMessages = async () => {
-      const response = await fetch(`/api/email/messages?conversationId=${activeId}`, {
-        cache: "no-store",
-      }).catch(() => null);
-      if (!response || !response.ok) {
-        return;
-      }
-
-      const payload = await response.json();
-      setMessages(payload.messages ?? []);
-    };
-
-    void loadMessages();
+    const timeout = window.setTimeout(() => {
+      void loadMessages(activeId);
+    }, 0);
     const interval = window.setInterval(() => {
-      void loadMessages();
+      void loadMessages(activeId);
     }, 8_000);
 
-    return () => window.clearInterval(interval);
-  }, [activeId]);
+    return () => {
+      window.clearTimeout(timeout);
+      window.clearInterval(interval);
+    };
+  }, [activeId, loadMessages]);
 
   useEffect(() => {
     if (!activeId) {
       return;
     }
 
-    const loadTimeline = async () => {
-      const response = await fetch(`/api/email/contact-timeline?conversationId=${activeId}`, {
-        cache: "no-store",
-      }).catch(() => null);
+    const timeout = window.setTimeout(() => {
+      void loadTimeline(activeId);
+    }, 0);
 
-      if (!response || !response.ok) {
-        return;
-      }
-
-      const payload = await response.json();
-      setTimeline(payload.events ?? []);
-    };
-
-    void loadTimeline();
-  }, [activeId]);
+    return () => window.clearTimeout(timeout);
+  }, [activeId, loadTimeline]);
 
   const sendReply = async () => {
     const trimmed = text.trim();
@@ -228,13 +248,12 @@ export function AgentEmailClient() {
 
       setText("");
 
-      const refreshResponse = await fetch(`/api/email/messages?conversationId=${activeId}`, {
-        cache: "no-store",
-      });
-      if (refreshResponse.ok) {
-        const payload = await refreshResponse.json();
-        setMessages(payload.messages ?? []);
-      }
+      await Promise.all([
+        loadMessages(activeId),
+        loadConversations(),
+        loadAnalytics(),
+        loadTimeline(activeId),
+      ]);
     } catch (error) {
       console.error("[email:reply_failed]", error);
     } finally {
@@ -244,6 +263,44 @@ export function AgentEmailClient() {
 
   const insertCanned = (body: string) => {
     setText((current) => (current.trim().length > 0 ? `${current}\n\n${body}` : body));
+  };
+
+  const updateStatus = async (status: EmailConversation["status"]) => {
+    if (!activeId || isUpdatingStatus) {
+      return;
+    }
+
+    setIsUpdatingStatus(true);
+    try {
+      const response = await fetch("/api/email/status", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversationId: activeId, status }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error ?? "Failed to update status");
+      }
+
+      setConversations((current) =>
+        current.map((conversation) =>
+          conversation.id === activeId
+            ? { ...conversation, status, updatedAt: new Date().toISOString() }
+            : conversation,
+        ),
+      );
+
+      await Promise.all([
+        loadConversations(),
+        loadAnalytics(),
+        loadTimeline(activeId),
+      ]);
+    } catch (error) {
+      console.error("[email:status_failed]", error);
+    } finally {
+      setIsUpdatingStatus(false);
+    }
   };
 
   const saveCanned = () => {
@@ -360,11 +417,42 @@ export function AgentEmailClient() {
           {activeConversation ? (
             <>
               <header className="border-b border-[var(--color-line)] pb-4">
-                <p className="eyebrow">Thread</p>
-                <h2 className="mt-2 text-2xl font-extrabold tracking-[-0.04em]">{activeConversation.subject}</h2>
-                <p className="mt-1 text-sm text-[var(--color-muted)]">
-                  {activeConversation.customerName || "Customer"} · {activeConversation.customerEmail || "No email"}
-                </p>
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="eyebrow">Thread</p>
+                    <h2 className="mt-2 text-2xl font-extrabold tracking-[-0.04em]">{activeConversation.subject}</h2>
+                    <p className="mt-1 text-sm text-[var(--color-muted)]">
+                      {activeConversation.customerName || "Customer"} · {activeConversation.customerEmail || "No email"}
+                    </p>
+                    <span className="mt-3 inline-flex rounded-full border border-[var(--color-line)] bg-[rgba(255,255,255,0.72)] px-3 py-1 text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-muted)]">
+                      {activeConversation.status}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      className="btn-secondary"
+                      onClick={() => void updateStatus("OPEN")}
+                      disabled={isUpdatingStatus || activeConversation.status === "OPEN"}
+                    >
+                      Reopen
+                    </button>
+                    <button
+                      className="btn-secondary"
+                      onClick={() => void updateStatus("SNOOZED")}
+                      disabled={isUpdatingStatus || activeConversation.status === "SNOOZED"}
+                    >
+                      Snooze
+                    </button>
+                    <button
+                      className="btn-primary"
+                      onClick={() => void updateStatus("RESOLVED")}
+                      disabled={isUpdatingStatus || activeConversation.status === "RESOLVED"}
+                    >
+                      Resolve
+                    </button>
+                  </div>
+                </div>
               </header>
 
               <div className="mt-4 grid max-h-[480px] gap-3 overflow-auto pr-2">
@@ -380,7 +468,7 @@ export function AgentEmailClient() {
                     {message.senderType === "AGENT" && message.senderUser?.fullName ? (
                       <p className="text-xs font-semibold text-[rgba(255,255,255,0.8)]">{message.senderUser.fullName}</p>
                     ) : null}
-                    <p className="whitespace-pre-wrap text-sm">{message.body}</p>
+                    <p className="whitespace-pre-wrap break-words text-sm">{message.body}</p>
                   </div>
                 ))}
               </div>

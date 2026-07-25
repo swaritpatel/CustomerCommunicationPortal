@@ -5,6 +5,7 @@ import { getSessionClaims } from "@/modules/auth/session";
 import { generatePolicyAwareReply } from "@/modules/chat/agent-reply";
 import { readBearerToken, verifyVisitorToken } from "@/modules/chat/auth";
 import { chatLog } from "@/modules/chat/log";
+import { broadcastConversationEvent } from "@/modules/realtime/broadcast";
 
 async function resolveActor(request: Request) {
   const bearer = readBearerToken(request.headers.get("authorization"));
@@ -382,12 +383,23 @@ export async function POST(request: Request) {
       },
     });
 
+    await broadcastConversationEvent({
+      type: "message.created",
+      workspaceId: conversation.workspaceId,
+      conversationId: conversation.id,
+    });
+
     if (actor.kind === "VISITOR" && conversation.channel === "CHAT_WIDGET") {
       await maybeGenerateAutoReply({
         conversationId: conversation.id,
         workspaceId: conversation.workspaceId,
         workspaceName: conversation.workspace.name,
         latestVisitorText: text,
+      });
+      await broadcastConversationEvent({
+        type: "conversation.updated",
+        workspaceId: conversation.workspaceId,
+        conversationId: conversation.id,
       });
     }
 

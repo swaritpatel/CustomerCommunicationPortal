@@ -30,6 +30,8 @@ const serverEnvSchema = z.object({
   AI_TEMPERATURE: z.coerce.number().min(0).max(2).optional(),
   AI_MAX_TOKENS: z.coerce.number().int().positive().optional(),
   AI_POLICY_NAME: z.string().optional(),
+  REALTIME_SERVER_URL: z.url().optional(),
+  REALTIME_INTERNAL_SECRET: z.string().optional(),
 });
 
 export const serverEnv = serverEnvSchema.parse({
@@ -56,6 +58,8 @@ export const serverEnv = serverEnvSchema.parse({
   AI_TEMPERATURE: process.env.AI_TEMPERATURE,
   AI_MAX_TOKENS: process.env.AI_MAX_TOKENS,
   AI_POLICY_NAME: process.env.AI_POLICY_NAME,
+  REALTIME_SERVER_URL: process.env.REALTIME_SERVER_URL,
+  REALTIME_INTERNAL_SECRET: process.env.REALTIME_INTERNAL_SECRET,
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

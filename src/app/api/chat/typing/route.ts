@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { readBearerToken, verifyVisitorToken } from "@/modules/chat/auth";
 import { chatLog } from "@/modules/chat/log";
+import { broadcastConversationEvent } from "@/modules/realtime/broadcast";
 
 export async function POST(request: Request) {
   try {
@@ -51,6 +52,12 @@ export async function POST(request: Request) {
           },
         });
       }
+
+      await broadcastConversationEvent({
+        type: "typing.updated",
+        workspaceId: conversation.workspaceId,
+        conversationId: conversation.id,
+      });
 
       return NextResponse.json({ ok: true });
     }
@@ -102,6 +109,12 @@ export async function POST(request: Request) {
         },
       });
     }
+
+    await broadcastConversationEvent({
+      type: "typing.updated",
+      workspaceId: conversation.workspaceId,
+      conversationId: conversation.id,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error) {

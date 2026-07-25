@@ -43,6 +43,15 @@ Inbound webhook route:
 - POST /api/email/inbound
   - Expected JSON fields: workspaceSlug (or recipient with +slug), from, subject, text/html, messageId, inReplyTo, references.
 
+Email verification tooling:
+
+- GET /api/email/health
+  - Requires active login session.
+  - Returns SMTP + inbound readiness flags.
+- npm run email:verify
+  - Runs inbound parsing + threading validation.
+  - Runs real SMTP outbound check when SMTP vars are fully configured.
+
 ## Optional Debug
 
 - CHAT_DEBUG
@@ -54,6 +63,19 @@ Inbound webhook route:
 - NEXT_PUBLIC_APP_URL
   - Used by the landing page install snippet.
   - If not set, the snippet falls back to APP_URL and then http://localhost:3000.
+
+## Optional Realtime WebSockets
+
+- NEXT_PUBLIC_REALTIME_URL
+  - Browser-facing Socket.IO gateway URL, for example http://localhost:3001.
+- REALTIME_SERVER_URL
+  - Server-facing realtime gateway URL, for example http://127.0.0.1:3001.
+- REALTIME_INTERNAL_SECRET
+  - Shared secret used by Next.js API routes when posting to the realtime gateway /emit bridge.
+- REALTIME_PORT
+  - Port for `npm run realtime`, default 3001.
+
+If these are missing or the realtime gateway is offline, chat still works through SSE and fallback polling.
 
 ## Optional AI Chat Agent
 
