@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
 import { sendSupportEmail } from "@/modules/email/smtp";
+import { dispatchEmailWebhookEvent } from "@/modules/email/webhooks";
 
 export async function POST(request: Request) {
   try {
@@ -107,6 +108,17 @@ export async function POST(request: Request) {
           status: "OPEN",
         },
       });
+    });
+
+    await dispatchEmailWebhookEvent({
+      type: "email.reply.sent",
+      workspaceId: conversation.workspaceId,
+      conversationId: conversation.id,
+      occurredAt: now.toISOString(),
+      payload: {
+        customerEmail: conversation.customerEmail,
+        messageId: outbound.messageId,
+      },
     });
 
     return NextResponse.json({ ok: true, messageId: outbound.messageId });

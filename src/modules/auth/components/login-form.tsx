@@ -29,7 +29,7 @@ export function LoginForm() {
         <label className="mb-2 block text-sm font-semibold text-[var(--color-ink)]" htmlFor="email">
           Work email
         </label>
-        <input id="email" name="email" type="email" placeholder="ops@relaydesk.app" className="input" />
+        <input id="email" name="email" type="email" placeholder="ops@ccp.app" className="input" />
         <FieldError state={state} field="email" />
       </div>
 

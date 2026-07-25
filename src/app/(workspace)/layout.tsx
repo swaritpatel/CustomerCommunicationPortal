@@ -21,10 +21,10 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
         <header className="card rounded-[2rem] px-6 py-5 sm:px-8">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="eyebrow">RelayDesk Workspace</p>
+              <p className="eyebrow">CCP Workspace</p>
               <div className="mt-2 flex items-center gap-3">
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--color-accent)] font-bold text-white">
-                  R
+                  <span className="text-[10px] tracking-[0.08em]">CCP</span>
                 </div>
                 <div>
                   <h1 className="text-xl font-extrabold tracking-[-0.03em]">{membership.workspace.name}</h1>

@@ -10,6 +10,8 @@ type EmailConversation = {
   status: "OPEN" | "SNOOZED" | "RESOLVED";
   updatedAt: string;
   unreadCount: number;
+  firstResponseBreach: boolean;
+  resolutionBreach: boolean;
   latestMessage: { body: string; createdAt: string; senderType: string } | null;
 };
 
@@ -24,17 +26,98 @@ type Message = {
   senderUser?: { fullName: string };
 };
 
+type CannedResponse = {
+  id: string;
+  tag: string;
+  body: string;
+};
+
+type TimelineEvent = {
+  conversationId: string;
+  subject: string;
+  status: "OPEN" | "SNOOZED" | "RESOLVED";
+  updatedAt: string;
+};
+
+type AnalyticsPayload = {
+  totals: {
+    conversations: number;
+    resolved: number;
+    resolutionRate: number;
+  };
+  firstResponse: {
+    targetMinutes: number;
+    medianMinutes: number;
+    breaches: number;
+  };
+  resolution: {
+    targetHours: number;
+    medianHours: number;
+    breaches: number;
+  };
+};
+
+const DEFAULT_CANNED_RESPONSES: CannedResponse[] = [
+  {
+    id: "ack-1",
+    tag: "acknowledgement",
+    body: "Thanks for reaching out. We have received your message and are looking into it now.",
+  },
+  {
+    id: "followup-1",
+    tag: "follow-up",
+    body: "Could you share one screenshot and the exact time this happened so we can investigate faster?",
+  },
+  {
+    id: "resolve-1",
+    tag: "resolution",
+    body: "This is now fixed on our side. Please refresh and let us know if you still see the issue.",
+  },
+];
+
+function readStoredCannedResponses() {
+  if (typeof window === "undefined") {
+    return DEFAULT_CANNED_RESPONSES;
+  }
+
+  const stored = window.localStorage.getItem("relaydesk.cannedResponses");
+  if (!stored) {
+    return DEFAULT_CANNED_RESPONSES;
+  }
+
+  try {
+    const parsed = JSON.parse(stored) as CannedResponse[];
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+  } catch {
+    // Ignore malformed local data and keep defaults.
+  }
+
+  return DEFAULT_CANNED_RESPONSES;
+}
+
 export function AgentEmailClient() {
   const [conversations, setConversations] = useState<EmailConversation[]>([]);
   const [activeId, setActiveId] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [isDrafting, setIsDrafting] = useState(false);
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [analytics, setAnalytics] = useState<AnalyticsPayload | null>(null);
+  const [cannedResponses, setCannedResponses] = useState<CannedResponse[]>(readStoredCannedResponses);
+  const [newCannedTag, setNewCannedTag] = useState("");
+  const [newCannedBody, setNewCannedBody] = useState("");
 
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === activeId) ?? null,
     [conversations, activeId],
   );
+
+  useEffect(() => {
+    window.localStorage.setItem("relaydesk.cannedResponses", JSON.stringify(cannedResponses));
+  }, [cannedResponses]);
 
   useEffect(() => {
     const load = async () => {
@@ -60,6 +143,25 @@ export function AgentEmailClient() {
   }, [activeId]);
 
   useEffect(() => {
+    const loadAnalytics = async () => {
+      const response = await fetch("/api/email/analytics", { cache: "no-store" }).catch(() => null);
+      if (!response || !response.ok) {
+        return;
+      }
+
+      const payload = (await response.json()) as AnalyticsPayload;
+      setAnalytics(payload);
+    };
+
+    void loadAnalytics();
+    const interval = window.setInterval(() => {
+      void loadAnalytics();
+    }, 20_000);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
     if (!activeId) {
       return;
     }
@@ -82,6 +184,27 @@ export function AgentEmailClient() {
     }, 8_000);
 
     return () => window.clearInterval(interval);
+  }, [activeId]);
+
+  useEffect(() => {
+    if (!activeId) {
+      return;
+    }
+
+    const loadTimeline = async () => {
+      const response = await fetch(`/api/email/contact-timeline?conversationId=${activeId}`, {
+        cache: "no-store",
+      }).catch(() => null);
+
+      if (!response || !response.ok) {
+        return;
+      }
+
+      const payload = await response.json();
+      setTimeline(payload.events ?? []);
+    };
+
+    void loadTimeline();
   }, [activeId]);
 
   const sendReply = async () => {
@@ -119,6 +242,57 @@ export function AgentEmailClient() {
     }
   };
 
+  const insertCanned = (body: string) => {
+    setText((current) => (current.trim().length > 0 ? `${current}\n\n${body}` : body));
+  };
+
+  const saveCanned = () => {
+    const tag = newCannedTag.trim();
+    const body = newCannedBody.trim();
+    if (!tag || !body) {
+      return;
+    }
+
+    const entry: CannedResponse = {
+      id: `${Date.now()}`,
+      tag,
+      body,
+    };
+
+    setCannedResponses((current) => [entry, ...current]);
+    setNewCannedTag("");
+    setNewCannedBody("");
+  };
+
+  const draftReply = async () => {
+    if (!activeId || isDrafting) {
+      return;
+    }
+
+    setIsDrafting(true);
+    try {
+      const response = await fetch("/api/email/draft", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          conversationId: activeId,
+          cannedResponses: cannedResponses.map((item) => item.body),
+        }),
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = (await response.json()) as { draft?: string };
+      if (payload.draft) {
+        setText(payload.draft);
+      }
+    } finally {
+      setIsDrafting(false);
+    }
+  };
+
   return (
     <main className="min-h-screen px-6 py-8 sm:px-8 lg:px-10">
       <div className="mx-auto grid w-full max-w-7xl gap-6 lg:grid-cols-[340px_1fr]">
@@ -149,9 +323,37 @@ export function AgentEmailClient() {
                   ) : null}
                 </div>
                 <p className="mt-1 truncate text-xs text-[var(--color-muted)]">{conversation.subject}</p>
+                <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.08em]">
+                  {conversation.firstResponseBreach ? (
+                    <span className="rounded-full bg-[rgba(224,75,54,0.14)] px-2 py-0.5 text-[#a63926]">
+                      First response SLA breached
+                    </span>
+                  ) : null}
+                  {conversation.resolutionBreach ? (
+                    <span className="rounded-full bg-[rgba(224,75,54,0.14)] px-2 py-0.5 text-[#a63926]">
+                      Resolution SLA breached
+                    </span>
+                  ) : null}
+                </div>
               </button>
             ))}
           </div>
+
+          {analytics ? (
+            <div className="mt-6 rounded-2xl border border-[var(--color-line)] bg-[rgba(255,255,255,0.72)] p-4">
+              <p className="eyebrow">Analytics</p>
+              <p className="mt-2 text-xs text-[var(--color-muted)]">
+                Resolution rate: {Math.round(analytics.totals.resolutionRate * 100)}% · Median first response:
+                {" "}
+                {Math.round(analytics.firstResponse.medianMinutes)}m
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-muted)]">
+                First-response breaches: {analytics.firstResponse.breaches} · Resolution breaches:
+                {" "}
+                {analytics.resolution.breaches}
+              </p>
+            </div>
+          ) : null}
         </aside>
 
         <section className="card rounded-[2rem] p-5">
@@ -183,6 +385,18 @@ export function AgentEmailClient() {
                 ))}
               </div>
 
+              <div className="mt-4 rounded-2xl border border-[var(--color-line)] bg-[rgba(255,255,255,0.65)] p-4">
+                <p className="eyebrow">Contact timeline</p>
+                <div className="mt-2 grid max-h-[160px] gap-2 overflow-auto text-xs text-[var(--color-muted)]">
+                  {timeline.slice(0, 8).map((event) => (
+                    <div key={event.conversationId} className="rounded-xl border border-[var(--color-line)] px-3 py-2">
+                      <p className="font-semibold text-[var(--color-ink)]">{event.subject}</p>
+                      <p>{new Date(event.updatedAt).toLocaleString()} · {event.status}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               <footer className="mt-4 grid grid-cols-[1fr_auto] gap-3 border-t border-[var(--color-line)] pt-4">
                 <textarea
                   className="input min-h-[100px]"
@@ -190,14 +404,51 @@ export function AgentEmailClient() {
                   onChange={(event) => setText(event.target.value)}
                   placeholder="Reply to customer email"
                 />
-                <button
-                  className="btn-primary self-end"
-                  onClick={() => void sendReply()}
-                  disabled={isSending || text.trim().length === 0}
-                >
-                  {isSending ? "Sending..." : "Send reply"}
-                </button>
+                <div className="grid gap-2 self-end">
+                  <button className="btn-secondary" onClick={() => void draftReply()} disabled={isDrafting}>
+                    {isDrafting ? "Drafting..." : "AI draft"}
+                  </button>
+                  <button
+                    className="btn-primary"
+                    onClick={() => void sendReply()}
+                    disabled={isSending || text.trim().length === 0}
+                  >
+                    {isSending ? "Sending..." : "Send reply"}
+                  </button>
+                </div>
               </footer>
+
+              <section className="mt-4 rounded-2xl border border-[var(--color-line)] bg-[rgba(255,255,255,0.65)] p-4">
+                <p className="eyebrow">Canned responses</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {cannedResponses.map((response) => (
+                    <button
+                      key={response.id}
+                      className="rounded-full border border-[var(--color-line)] bg-white px-3 py-1 text-xs font-semibold"
+                      onClick={() => insertCanned(response.body)}
+                    >
+                      {response.tag}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-[140px_1fr_auto]">
+                  <input
+                    className="input"
+                    value={newCannedTag}
+                    onChange={(event) => setNewCannedTag(event.target.value)}
+                    placeholder="Tag"
+                  />
+                  <input
+                    className="input"
+                    value={newCannedBody}
+                    onChange={(event) => setNewCannedBody(event.target.value)}
+                    placeholder="Saved response text"
+                  />
+                  <button className="btn-secondary" onClick={saveCanned}>
+                    Save
+                  </button>
+                </div>
+              </section>
             </>
           ) : (
             <div className="flex h-full min-h-[420px] items-center justify-center text-[var(--color-muted)]">

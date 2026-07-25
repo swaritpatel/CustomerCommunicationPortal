@@ -27,7 +27,12 @@ async function resolveActor(request: Request) {
   return null;
 }
 
-async function buildSnapshot(conversationId: string, workspaceId: string, viewerUserId: string | null) {
+async function buildSnapshot(
+  conversationId: string,
+  workspaceId: string,
+  viewerKind: "AGENT" | "VISITOR",
+  viewerUserId: string | null,
+) {
   const [messages, typing, onlineAgents, refreshedConversation] = await Promise.all([
     db.chatMessage.findMany({
       where: { conversationId },
@@ -74,9 +79,10 @@ async function buildSnapshot(conversationId: string, workspaceId: string, viewer
         refreshedConversation?.visitorLastSeenAt != null &&
         refreshedConversation.visitorLastSeenAt.getTime() > Date.now() - 45_000,
       visitorTyping: typing.some((entry) => entry.actorType === "VISITOR"),
-      agentTyping: typing.some(
-        (entry) => entry.actorType === "AGENT" && entry.actorUserId !== viewerUserId,
-      ),
+      agentTyping:
+        viewerKind === "AGENT"
+          ? typing.some((entry) => entry.actorType === "AGENT" && entry.actorUserId !== viewerUserId)
+          : typing.some((entry) => entry.actorType === "AGENT"),
     },
   };
 }
@@ -225,6 +231,7 @@ export async function GET(request: Request) {
           const snapshot = await buildSnapshot(
             conversation.id,
             conversation.workspaceId,
+            actor.kind,
             actor.kind === "AGENT" ? actor.claims.sub : null,
           );
           const fingerprint = toFingerprint(snapshot);

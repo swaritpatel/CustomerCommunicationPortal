@@ -32,10 +32,10 @@ export default function Home() {
             <p className="eyebrow">Feature 01 / Authentication & Team Management</p>
             <div className="mt-2 flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--color-accent)] text-lg font-bold text-white">
-                R
+                <span className="text-[10px] tracking-[0.08em]">CCP</span>
               </div>
               <div>
-                <h1 className="text-xl font-extrabold tracking-[-0.03em]">RelayDesk</h1>
+                <h1 className="text-xl font-extrabold tracking-[-0.03em]">CCP</h1>
                 <p className="text-sm text-[var(--color-muted)]">
                   Customer communication infrastructure with operator-grade workflow design.
                 </p>

@@ -4,6 +4,9 @@ import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
 
+const FIRST_RESPONSE_TARGET_MINUTES = 15;
+const RESOLUTION_TARGET_HOURS = 24;
+
 export async function GET() {
   try {
     const claims = await getSessionClaims();
@@ -34,6 +37,7 @@ export async function GET() {
       take: 100,
       select: {
         id: true,
+        createdAt: true,
         subject: true,
         customerName: true,
         customerEmail: true,
@@ -41,9 +45,9 @@ export async function GET() {
         updatedAt: true,
         currentAssigneeId: true,
         messages: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: { body: true, createdAt: true, senderType: true },
+          orderBy: { createdAt: "asc" },
+          take: 100,
+          select: { body: true, senderType: true, createdAt: true },
         },
         _count: {
           select: {
@@ -59,17 +63,39 @@ export async function GET() {
     });
 
     return NextResponse.json({
-      conversations: conversations.map((conversation) => ({
-        id: conversation.id,
-        subject: conversation.subject,
-        customerName: conversation.customerName,
-        customerEmail: conversation.customerEmail,
-        status: conversation.status,
-        updatedAt: conversation.updatedAt,
-        currentAssigneeId: conversation.currentAssigneeId,
-        unreadCount: conversation._count.messages,
-        latestMessage: conversation.messages[0] ?? null,
-      })),
+      conversations: conversations.map((conversation) => {
+        const firstVisitor = conversation.messages.find(
+          (message) => message.senderType === "VISITOR",
+        );
+        const firstAgent = conversation.messages.find((message) => message.senderType === "AGENT");
+        const latestMessage =
+          conversation.messages.length > 0 ? conversation.messages[conversation.messages.length - 1] : null;
+
+        const firstResponseMinutes =
+          firstVisitor && firstAgent
+            ? (firstAgent.createdAt.getTime() - firstVisitor.createdAt.getTime()) / (1000 * 60)
+            : null;
+
+        const resolutionHours =
+          conversation.status === "RESOLVED"
+            ? (conversation.updatedAt.getTime() - conversation.createdAt.getTime()) / (1000 * 60 * 60)
+            : null;
+
+        return {
+          id: conversation.id,
+          subject: conversation.subject,
+          customerName: conversation.customerName,
+          customerEmail: conversation.customerEmail,
+          status: conversation.status,
+          updatedAt: conversation.updatedAt,
+          currentAssigneeId: conversation.currentAssigneeId,
+          unreadCount: conversation._count.messages,
+          latestMessage,
+          firstResponseBreach:
+            firstResponseMinutes !== null && firstResponseMinutes > FIRST_RESPONSE_TARGET_MINUTES,
+          resolutionBreach: resolutionHours !== null && resolutionHours > RESOLUTION_TARGET_HOURS,
+        };
+      }),
     });
   } catch (error) {
     chatLog("error", "email_conversations_failed", {

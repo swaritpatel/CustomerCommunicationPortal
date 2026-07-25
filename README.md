@@ -11,6 +11,11 @@ This project includes an email channel with:
 - Inbound email webhook ingestion
 - Threading via Message-ID, In-Reply-To, and References
 - Agent replies from dashboard via SMTP
+- AI-assisted reply drafts in inbox
+- Canned responses (tag + quick insert)
+- Contact timeline for customer history
+- SLA indicators + analytics API
+- Configurable outgoing webhooks for email events
 
 ### Routes
 
@@ -18,6 +23,9 @@ This project includes an email channel with:
 - Email conversation list: GET /api/email/conversations
 - Email thread messages: GET /api/email/messages?conversationId=...
 - Agent reply: POST /api/email/reply
+- AI draft: POST /api/email/draft
+- Contact timeline: GET /api/email/contact-timeline?conversationId=...
+- Analytics: GET /api/email/analytics
 - Agent UI: /inbox
 
 ### Inbound webhook payload (JSON)
@@ -49,6 +57,24 @@ If INBOUND_EMAIL_WEBHOOK_SECRET is set, include header:
 3. Send inbound JSON to /api/email/inbound.
 4. Confirm conversation appears in /inbox.
 5. Reply from /inbox (requires SMTP_* env vars).
+
+## Live Chat AI Agent (Policy-Aware)
+
+This project can auto-reply in the chat widget with policy-aware responses.
+
+- Mode is controlled by AI_CHAT_MODE: off, assist, autoreply
+- In autoreply mode, the system:
+	- Reads recent transcript context
+	- Applies policy constraints and escalation triggers
+	- Replies only for widget chat conversations
+	- Skips auto-reply when a human agent is currently online
+
+Required settings for live AI replies:
+
+- AI_CHAT_MODE=autoreply
+- AI_API_KEY
+- AI_MODEL (example: gpt-4o-mini)
+- Optional: AI_BASE_URL, AI_TEMPERATURE, AI_MAX_TOKENS, AI_POLICY_NAME
 
 ## Getting Started
 
@@ -84,6 +110,4 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-# CustomerCommunicationPortal
-# CustomerCommunicationPortal
 # CustomerCommunicationPortal

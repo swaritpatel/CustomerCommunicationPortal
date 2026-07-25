@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { serverEnv } from "@/lib/env";
 import { normalizeInboundEmail, resolveWorkspaceSlugFromRecipient } from "@/modules/email/inbound";
+import { dispatchEmailWebhookEvent } from "@/modules/email/webhooks";
 import { chatLog } from "@/modules/chat/log";
 
 function isInboundAuthorized(request: Request) {
@@ -126,6 +127,17 @@ export async function POST(request: Request) {
           subject: normalized.subject || undefined,
         },
       });
+    });
+
+    await dispatchEmailWebhookEvent({
+      type: "email.inbound.received",
+      workspaceId: workspace.id,
+      conversationId: conversation.id,
+      occurredAt: now.toISOString(),
+      payload: {
+        customerEmail: normalized.senderEmail,
+        subject: normalized.subject,
+      },
     });
 
     return NextResponse.json({ ok: true, conversationId: conversation.id });

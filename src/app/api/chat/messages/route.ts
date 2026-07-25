@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
+import { generatePolicyAwareReply } from "@/modules/chat/agent-reply";
 import { readBearerToken, verifyVisitorToken } from "@/modules/chat/auth";
 import { chatLog } from "@/modules/chat/log";
 
@@ -20,6 +21,123 @@ async function resolveActor(request: Request) {
   }
 
   return null;
+}
+
+async function maybeGenerateAutoReply(input: {
+  conversationId: string;
+  workspaceId: string;
+  workspaceName: string;
+  latestVisitorText: string;
+}) {
+  await db.chatTypingState.deleteMany({
+    where: {
+      conversationId: input.conversationId,
+      actorType: "AGENT",
+      actorUserId: null,
+    },
+  });
+
+  await db.chatTypingState.create({
+    data: {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      actorType: "AGENT",
+      actorUserId: null,
+    },
+  });
+
+  try {
+    const onlineAgents = await db.workspaceMember.count({
+      where: {
+        workspaceId: input.workspaceId,
+        status: "ACTIVE",
+        lastSeenAt: { gte: new Date(Date.now() - 45_000) },
+      },
+    });
+
+    if (onlineAgents > 0) {
+      chatLog("info", "ai_reply_skipped_agents_online", {
+        conversationId: input.conversationId,
+      });
+      return;
+    }
+
+    const recentMessages = await db.chatMessage.findMany({
+      where: { conversationId: input.conversationId },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: {
+        senderType: true,
+        body: true,
+        senderUser: {
+          select: { fullName: true },
+        },
+      },
+    });
+
+    const aiReply = await generatePolicyAwareReply({
+      workspaceName: input.workspaceName,
+      latestVisitorMessage: input.latestVisitorText,
+      recentMessages: recentMessages.reverse().map((message) => ({
+        senderType: message.senderType,
+        body: message.body,
+        senderName: message.senderUser?.fullName,
+      })),
+    });
+
+    if (aiReply.kind === "handoff") {
+      chatLog("info", "ai_reply_handoff", {
+        conversationId: input.conversationId,
+        reason: aiReply.reason,
+      });
+      return;
+    }
+
+    if (aiReply.kind !== "reply") {
+      chatLog("info", "ai_reply_skipped", {
+        conversationId: input.conversationId,
+        reason: aiReply.reason,
+      });
+      return;
+    }
+
+    const now = new Date();
+    await db.$transaction([
+      db.chatMessage.create({
+        data: {
+          workspaceId: input.workspaceId,
+          conversationId: input.conversationId,
+          senderType: "AGENT",
+          senderUserId: null,
+          body: aiReply.body,
+          readByVisitorAt: null,
+          readByAgentAt: now,
+        },
+      }),
+      db.conversation.update({
+        where: { id: input.conversationId },
+        data: { updatedAt: now },
+      }),
+    ]);
+
+    chatLog("info", "ai_reply_sent", {
+      conversationId: input.conversationId,
+      model: aiReply.model,
+    });
+  } catch (error) {
+    chatLog("warn", "ai_reply_workflow_failed", {
+      conversationId: input.conversationId,
+      error: error instanceof Error ? error.message : "unknown_error",
+    });
+  } finally {
+    await db.chatTypingState.deleteMany({
+      where: {
+        conversationId: input.conversationId,
+        actorType: "AGENT",
+        actorUserId: null,
+      },
+    });
+  }
 }
 
 export async function GET(request: Request) {
@@ -152,9 +270,10 @@ export async function GET(request: Request) {
           refreshedConversation?.visitorLastSeenAt != null &&
           refreshedConversation.visitorLastSeenAt.getTime() > Date.now() - 45_000,
         visitorTyping: typing.some((entry) => entry.actorType === "VISITOR"),
-        agentTyping: typing.some(
-          (entry) => entry.actorType === "AGENT" && entry.actorUserId !== viewerUserId,
-        ),
+        agentTyping:
+          actor.kind === "AGENT"
+            ? typing.some((entry) => entry.actorType === "AGENT" && entry.actorUserId !== viewerUserId)
+            : typing.some((entry) => entry.actorType === "AGENT"),
       },
     });
   } catch (error) {
@@ -190,7 +309,7 @@ export async function POST(request: Request) {
 
     const conversation = await db.conversation.findUnique({
       where: { id: conversationId },
-      select: { id: true, workspaceId: true },
+      select: { id: true, workspaceId: true, channel: true, workspace: { select: { name: true } } },
     });
 
     if (!conversation) {
@@ -262,6 +381,15 @@ export async function POST(request: Request) {
         visitorLastSeenAt: actor.kind === "VISITOR" ? now : undefined,
       },
     });
+
+    if (actor.kind === "VISITOR" && conversation.channel === "CHAT_WIDGET") {
+      await maybeGenerateAutoReply({
+        conversationId: conversation.id,
+        workspaceId: conversation.workspaceId,
+        workspaceName: conversation.workspace.name,
+        latestVisitorText: text,
+      });
+    }
 
     return NextResponse.json({ message });
   } catch (error) {

@@ -206,32 +206,63 @@ export function WidgetChatClient() {
     }
   };
 
+  const getInitials = (name: string) => {
+    const tokens = name.trim().split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) {
+      return "A";
+    }
+    return tokens
+      .slice(0, 2)
+      .map((token) => token[0]?.toUpperCase() ?? "")
+      .join("");
+  };
+
+  const agentDisplayName = (message: Message) => message.senderUser?.fullName || "CCP Agent";
+
   return (
     <div className="widget-shell">
       <header className="widget-head">
-        <div>
-          <strong>RelayDesk Live Chat</strong>
-          <p>{meta.agentOnline ? "Agent online" : "We reply quickly"}</p>
+        <div className="title-wrap">
+          <div className="avatar brand">CCP</div>
+          <div>
+            <strong>CCP Live Chat</strong>
+            <p>
+              <span className={`status-dot ${meta.agentOnline ? "online" : "offline"}`} />
+              {meta.agentOnline ? "Agent online" : "We reply quickly"}
+            </p>
+          </div>
         </div>
         <button onClick={() => window.parent.postMessage("relaydesk:close", "*")}>✕</button>
       </header>
 
       <div className="widget-feed">
         {messages.map((message) => (
-          <div
-            key={message.id}
-            className={message.senderType === "VISITOR" ? "bubble mine" : "bubble"}
-          >
-            {message.senderType === "AGENT" && message.senderUser?.fullName ? (
-              <p className="author">{message.senderUser.fullName}</p>
-            ) : null}
-            <p>{message.body}</p>
-            {message.senderType === "VISITOR" ? (
-              <small>{message.readByAgentAt ? "Read" : "Sent"}</small>
-            ) : null}
+          <div key={message.id} className={`row ${message.senderType === "VISITOR" ? "mine" : "other"}`}>
+            {message.senderType === "VISITOR" ? null : (
+              <div className="avatar small">{getInitials(agentDisplayName(message))}</div>
+            )}
+            <div className={message.senderType === "VISITOR" ? "bubble mine" : "bubble"}>
+              <p className="author">{message.senderType === "VISITOR" ? "You" : agentDisplayName(message)}</p>
+              <p>{message.body}</p>
+              {message.senderType === "VISITOR" ? (
+                <small className={message.readByAgentAt ? "ticks read" : "ticks sent"}>
+                  ✓✓
+                </small>
+              ) : null}
+            </div>
           </div>
         ))}
-        {meta.agentTyping ? <p className="typing">Agent is typing...</p> : null}
+
+        {meta.agentTyping ? (
+          <div className="row other">
+            <div className="avatar small">CA</div>
+            <div className="typing-pill" aria-live="polite" aria-label="Agent is typing">
+              <span />
+              <span />
+              <span />
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <footer className="widget-compose">
@@ -261,14 +292,58 @@ export function WidgetChatClient() {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 12px;
+          padding: 12px 14px;
           border-bottom: 1px solid #e2d6c7;
           background: #fff;
+        }
+        .title-wrap {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .avatar {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 999px;
+          font-weight: 800;
+          letter-spacing: 0.04em;
+        }
+        .avatar.brand {
+          width: 34px;
+          height: 34px;
+          font-size: 11px;
+          color: #fff;
+          background: #b65a34;
+        }
+        .avatar.small {
+          width: 24px;
+          height: 24px;
+          flex: 0 0 24px;
+          font-size: 10px;
+          color: #6a4a33;
+          background: #f2e4d4;
+          border: 1px solid #e3d1bd;
         }
         .widget-head p {
           margin: 2px 0 0;
           font-size: 12px;
           color: #7d6b59;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .status-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 999px;
+          display: inline-block;
+        }
+        .status-dot.online {
+          background: #2a9d57;
+        }
+        .status-dot.offline {
+          background: #b7a896;
         }
         .widget-head button {
           border: 0;
@@ -282,16 +357,25 @@ export function WidgetChatClient() {
           display: grid;
           gap: 10px;
           align-content: start;
+          background: linear-gradient(180deg, rgba(255, 248, 241, 0.35) 0%, rgba(255, 248, 241, 0.7) 100%);
+        }
+        .row {
+          display: flex;
+          gap: 8px;
+          align-items: flex-end;
+          max-width: 100%;
+        }
+        .row.mine {
+          justify-content: flex-end;
         }
         .bubble {
           max-width: 82%;
           background: #ffffff;
           border: 1px solid #e8ddd0;
           border-radius: 14px 14px 14px 4px;
-          padding: 10px;
+          padding: 8px 10px;
         }
         .bubble.mine {
-          margin-left: auto;
           background: #b65a34;
           border-color: #b65a34;
           color: #fff;
@@ -303,20 +387,52 @@ export function WidgetChatClient() {
           font-weight: 700;
           color: #7d6b59;
         }
+        .bubble.mine .author {
+          color: rgba(255, 255, 255, 0.86);
+        }
         .bubble p {
           margin: 0;
           white-space: pre-wrap;
+          line-height: 1.35;
         }
         .bubble small {
           display: block;
           margin-top: 6px;
           font-size: 11px;
-          opacity: 0.8;
+          opacity: 0.9;
         }
-        .typing {
-          margin: 0;
-          font-size: 12px;
-          color: #7d6b59;
+        .ticks {
+          text-align: right;
+        }
+        .ticks.sent {
+          color: rgba(255, 255, 255, 0.75);
+        }
+        .ticks.read {
+          color: #36a3ff;
+          font-weight: 700;
+          transition: color 180ms ease-in;
+        }
+        .typing-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          border: 1px solid #e3d1bd;
+          border-radius: 999px;
+          background: #fff;
+          padding: 8px 10px;
+        }
+        .typing-pill span {
+          width: 6px;
+          height: 6px;
+          border-radius: 999px;
+          background: #b08f71;
+          animation: pulse 1s infinite ease-in-out;
+        }
+        .typing-pill span:nth-child(2) {
+          animation-delay: 0.15s;
+        }
+        .typing-pill span:nth-child(3) {
+          animation-delay: 0.3s;
         }
         .widget-compose {
           border-top: 1px solid #e2d6c7;
@@ -346,6 +462,18 @@ export function WidgetChatClient() {
         button:disabled {
           opacity: 0.55;
           cursor: not-allowed;
+        }
+        @keyframes pulse {
+          0%,
+          80%,
+          100% {
+            transform: translateY(0);
+            opacity: 0.35;
+          }
+          40% {
+            transform: translateY(-2px);
+            opacity: 1;
+          }
         }
       `}</style>
     </div>

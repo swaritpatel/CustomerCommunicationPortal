@@ -41,6 +41,17 @@ export function AgentChatClient() {
     [conversations, activeId],
   );
 
+  const getInitials = (name: string) => {
+    const tokens = name.trim().split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) {
+      return "A";
+    }
+    return tokens
+      .slice(0, 2)
+      .map((token) => token[0]?.toUpperCase() ?? "")
+      .join("");
+  };
+
   useEffect(() => {
     const loadConversations = async () => {
       const response = await fetch("/api/chat/conversations", { cache: "no-store" }).catch(
@@ -251,20 +262,50 @@ export function AgentChatClient() {
                 {messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`max-w-[84%] rounded-2xl border px-4 py-3 ${
-                      message.senderType === "AGENT"
-                        ? "ml-auto border-[var(--color-accent)] bg-[var(--color-accent)] text-white"
-                        : "border-[var(--color-line)] bg-[rgba(255,255,255,0.78)]"
-                    }`}
+                    className={`flex items-end gap-2 ${message.senderType === "AGENT" ? "justify-end" : "justify-start"}`}
                   >
-                    {message.senderType === "AGENT" && message.senderUser?.fullName ? (
-                      <p className="text-xs font-semibold text-[rgba(255,255,255,0.8)]">{message.senderUser.fullName}</p>
-                    ) : null}
-                    <p className="whitespace-pre-wrap text-sm">{message.body}</p>
-                    {message.senderType === "AGENT" ? (
-                      <p className="mt-1 text-right text-xs text-[rgba(255,255,255,0.8)]">
-                        {message.readByVisitorAt ? "Read" : "Sent"}
+                    {message.senderType === "AGENT" ? null : (
+                      <div className="h-7 w-7 shrink-0 rounded-full border border-[var(--color-line)] bg-[rgba(255,255,255,0.9)] text-center text-[10px] font-bold leading-7 text-[var(--color-soft)]">
+                        {getInitials(activeConversation?.customerName || activeConversation?.customerEmail || "Visitor")}
+                      </div>
+                    )}
+
+                    <div
+                      className={`max-w-[84%] rounded-2xl border px-4 py-3 ${
+                        message.senderType === "AGENT"
+                          ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-white"
+                          : "border-[var(--color-line)] bg-[rgba(255,255,255,0.78)]"
+                      }`}
+                    >
+                      <p
+                        className={`text-xs font-semibold ${
+                          message.senderType === "AGENT"
+                            ? "text-[rgba(255,255,255,0.82)]"
+                            : "text-[var(--color-soft)]"
+                        }`}
+                      >
+                        {message.senderType === "AGENT"
+                          ? message.senderUser?.fullName || "CCP Agent"
+                          : activeConversation?.customerName || "Website visitor"}
                       </p>
+                      <p className="mt-1 whitespace-pre-wrap text-sm">{message.body}</p>
+                      {message.senderType === "AGENT" ? (
+                        <p
+                          className={`mt-1 text-right text-xs ${
+                            message.readByVisitorAt
+                              ? "text-[#36a3ff] font-semibold transition-colors duration-200"
+                              : "text-[rgba(255,255,255,0.78)]"
+                          }`}
+                        >
+                          ✓✓
+                        </p>
+                      ) : null}
+                    </div>
+
+                    {message.senderType === "AGENT" ? (
+                      <div className="h-7 w-7 shrink-0 rounded-full border border-[rgba(182,90,52,0.3)] bg-[var(--color-accent-soft)] text-center text-[10px] font-bold leading-7 text-[var(--color-accent-strong)]">
+                        {getInitials(message.senderUser?.fullName || "CCP Agent")}
+                      </div>
                     ) : null}
                   </div>
                 ))}

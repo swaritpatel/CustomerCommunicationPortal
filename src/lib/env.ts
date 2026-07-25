@@ -18,6 +18,18 @@ const serverEnvSchema = z.object({
   SMTP_FROM_NAME: z.string().optional(),
   INBOUND_EMAIL_WEBHOOK_SECRET: z.string().optional(),
   INBOUND_EMAIL_DOMAIN: z.string().optional(),
+  EMAIL_WEBHOOK_URLS: z.string().optional(),
+  AI_CHAT_MODE: z
+    .union([z.literal("off"), z.literal("assist"), z.literal("autoreply")])
+    .optional()
+    .transform((value) => value ?? "off"),
+  AI_PROVIDER: z.string().optional(),
+  AI_API_KEY: z.string().optional(),
+  AI_MODEL: z.string().optional(),
+  AI_BASE_URL: z.url().optional(),
+  AI_TEMPERATURE: z.coerce.number().min(0).max(2).optional(),
+  AI_MAX_TOKENS: z.coerce.number().int().positive().optional(),
+  AI_POLICY_NAME: z.string().optional(),
 });
 
 export const serverEnv = serverEnvSchema.parse({
@@ -35,6 +47,15 @@ export const serverEnv = serverEnvSchema.parse({
   SMTP_FROM_NAME: process.env.SMTP_FROM_NAME,
   INBOUND_EMAIL_WEBHOOK_SECRET: process.env.INBOUND_EMAIL_WEBHOOK_SECRET,
   INBOUND_EMAIL_DOMAIN: process.env.INBOUND_EMAIL_DOMAIN,
+  EMAIL_WEBHOOK_URLS: process.env.EMAIL_WEBHOOK_URLS,
+  AI_CHAT_MODE: process.env.AI_CHAT_MODE,
+  AI_PROVIDER: process.env.AI_PROVIDER,
+  AI_API_KEY: process.env.AI_API_KEY,
+  AI_MODEL: process.env.AI_MODEL,
+  AI_BASE_URL: process.env.AI_BASE_URL,
+  AI_TEMPERATURE: process.env.AI_TEMPERATURE,
+  AI_MAX_TOKENS: process.env.AI_MAX_TOKENS,
+  AI_POLICY_NAME: process.env.AI_POLICY_NAME,
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

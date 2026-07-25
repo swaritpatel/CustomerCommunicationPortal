@@ -1,4 +1,4 @@
-# RelayDesk Credentials Required
+# CCP (Customer Communication Platform) Credentials Required
 
 This project needs these environment variables to run correctly.
 
@@ -35,6 +35,8 @@ This project needs these environment variables to run correctly.
   - Secret expected in x-relaydesk-email-secret for inbound email webhook calls.
 - INBOUND_EMAIL_DOMAIN
   - Optional fallback domain for generated Message-ID values.
+- EMAIL_WEBHOOK_URLS
+  - Optional comma-separated webhook URLs for email event delivery (inbound received, reply sent, SLA events).
 
 Inbound webhook route:
 
@@ -52,6 +54,32 @@ Inbound webhook route:
 - NEXT_PUBLIC_APP_URL
   - Used by the landing page install snippet.
   - If not set, the snippet falls back to APP_URL and then http://localhost:3000.
+
+## Optional AI Chat Agent
+
+- AI_CHAT_MODE
+  - off, assist, or autoreply.
+  - Use autoreply to let the system post policy-aware agent replies automatically.
+- AI_PROVIDER
+  - Provider name label for observability (for example, openai).
+- AI_API_KEY
+  - API key used by the chat completion provider.
+- AI_MODEL
+  - Model name (for example, gpt-4o-mini).
+- AI_BASE_URL
+  - Provider base URL (default is https://api.openai.com).
+- AI_TEMPERATURE
+  - Sampling temperature from 0 to 2 (recommended: 0.5 to 0.8 for human tone).
+- AI_MAX_TOKENS
+  - Max completion tokens for the AI reply.
+- AI_POLICY_NAME
+  - Policy profile name for logging and policy selection.
+
+Auto-reply behavior:
+
+- Only runs for live chat widget conversations.
+- Automatically skips when an active human agent is online.
+- Uses policy-driven escalation triggers to hand off sensitive cases.
 
 ## Why chat may look "not working"
 

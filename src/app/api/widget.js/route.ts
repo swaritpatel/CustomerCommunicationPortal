@@ -8,7 +8,7 @@ export async function GET(request: Request) {
 
   var workspace = currentScript.getAttribute('data-workspace');
   if (!workspace) {
-    console.error('RelayDesk widget: missing data-workspace attribute.');
+    console.error('CCP widget: missing data-workspace attribute.');
     return;
   }
 

@@ -8,7 +8,7 @@ export default function LoginPage() {
       <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-7xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <section className="card fade-up hidden rounded-[2rem] p-8 lg:flex lg:flex-col lg:justify-between">
           <div>
-            <p className="eyebrow">RelayDesk / Login</p>
+            <p className="eyebrow">CCP / Login</p>
             <h1 className="mt-4 max-w-xl text-5xl font-extrabold tracking-[-0.05em]">
               Keep the inbox secure without slowing the team down.
             </h1>

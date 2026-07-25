@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "RelayDesk",
+  title: "CCP (Customer Communication Platform)",
   description:
     "A production-grade customer communication workspace for authentication, team management, and assignment workflows.",
 };
