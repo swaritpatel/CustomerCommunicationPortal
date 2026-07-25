@@ -5,6 +5,11 @@ import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
 import { buildAutoReplyDraft } from "@/modules/email/ai-draft";
 
+type DraftMessageItem = {
+  senderType: "VISITOR" | "AGENT" | "SYSTEM";
+  body: string;
+};
+
 export async function POST(request: Request) {
   try {
     const claims = await getSessionClaims();
@@ -49,7 +54,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const messages = await db.chatMessage.findMany({
+    const messages: DraftMessageItem[] = await db.chatMessage.findMany({
       where: { conversationId: conversation.id },
       orderBy: { createdAt: "asc" },
       take: 24,

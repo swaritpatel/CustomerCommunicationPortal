@@ -7,6 +7,19 @@ import { chatLog } from "@/modules/chat/log";
 const FIRST_RESPONSE_TARGET_MINUTES = 15;
 const RESOLUTION_TARGET_HOURS = 24;
 
+type EmailConversationListItem = {
+  id: string;
+  createdAt: Date;
+  subject: string;
+  customerName: string | null;
+  customerEmail: string | null;
+  status: string;
+  updatedAt: Date;
+  currentAssigneeId: string | null;
+  messages: Array<{ body: string; senderType: string; createdAt: Date }>;
+  _count: { messages: number };
+};
+
 export async function GET() {
   try {
     const claims = await getSessionClaims();
@@ -28,7 +41,7 @@ export async function GET() {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const conversations = await db.conversation.findMany({
+    const conversations: EmailConversationListItem[] = await db.conversation.findMany({
       where: {
         workspaceId: claims.workspaceId,
         channel: "EMAIL",
@@ -63,7 +76,7 @@ export async function GET() {
     });
 
     return NextResponse.json({
-      conversations: conversations.map((conversation) => {
+      conversations: conversations.map((conversation: EmailConversationListItem) => {
         const firstVisitor = conversation.messages.find(
           (message) => message.senderType === "VISITOR",
         );

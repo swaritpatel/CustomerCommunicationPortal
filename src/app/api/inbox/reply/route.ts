@@ -7,6 +7,10 @@ import { sendSupportEmail } from "@/modules/email/smtp";
 import { dispatchEmailWebhookEvent } from "@/modules/email/webhooks";
 import { broadcastConversationEvent } from "@/modules/realtime/broadcast";
 
+type EmailReferenceItem = {
+  messageId: string;
+};
+
 export async function POST(request: Request) {
   try {
     const claims = await getSessionClaims();
@@ -61,7 +65,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Conversation is missing customer email" }, { status: 400 });
       }
 
-      const latestReferences = await db.emailMessageReference.findMany({
+      const latestReferences: EmailReferenceItem[] = await db.emailMessageReference.findMany({
         where: { conversationId: conversation.id },
         orderBy: { createdAt: "desc" },
         take: 5,
@@ -69,7 +73,7 @@ export async function POST(request: Request) {
       });
 
       const inReplyTo = latestReferences[0]?.messageId ?? null;
-      const references = latestReferences.map((entry) => entry.messageId);
+      const references = latestReferences.map((entry: EmailReferenceItem) => entry.messageId);
 
       const outbound = await sendSupportEmail({
         to: conversation.customerEmail,

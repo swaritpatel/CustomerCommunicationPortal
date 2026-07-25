@@ -4,6 +4,16 @@ import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
 
+type ContactTimelineItem = {
+  id: string;
+  subject: string;
+  channel: string;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+  messages: Array<{ body: string; senderType: string; createdAt: Date }>;
+};
+
 export async function GET(request: Request) {
   try {
     const claims = await getSessionClaims();
@@ -49,7 +59,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ events: [] });
     }
 
-    const history = await db.conversation.findMany({
+    const history: ContactTimelineItem[] = await db.conversation.findMany({
       where: {
         workspaceId: conversation.workspaceId,
         customerEmail: conversation.customerEmail,
@@ -73,7 +83,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       customerEmail: conversation.customerEmail,
-      events: history.map((item) => ({
+      events: history.map((item: ContactTimelineItem) => ({
         conversationId: item.id,
         subject: item.subject,
         channel: item.channel,

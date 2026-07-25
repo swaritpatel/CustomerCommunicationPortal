@@ -7,6 +7,12 @@ import { readBearerToken, verifyVisitorToken } from "@/modules/chat/auth";
 import { chatLog } from "@/modules/chat/log";
 import { broadcastConversationEvent } from "@/modules/realtime/broadcast";
 
+type RecentChatMessage = {
+  senderType: "VISITOR" | "AGENT" | "SYSTEM";
+  body: string;
+  senderUser: { fullName: string } | null;
+};
+
 async function resolveActor(request: Request) {
   const bearer = readBearerToken(request.headers.get("authorization"));
   if (bearer) {
@@ -63,7 +69,7 @@ async function maybeGenerateAutoReply(input: {
       return;
     }
 
-    const recentMessages = await db.chatMessage.findMany({
+    const recentMessages: RecentChatMessage[] = await db.chatMessage.findMany({
       where: { conversationId: input.conversationId },
       orderBy: { createdAt: "desc" },
       take: 20,
@@ -79,7 +85,7 @@ async function maybeGenerateAutoReply(input: {
     const aiReply = await generatePolicyAwareReply({
       workspaceName: input.workspaceName,
       latestVisitorMessage: input.latestVisitorText,
-      recentMessages: recentMessages.reverse().map((message) => ({
+      recentMessages: recentMessages.reverse().map((message: RecentChatMessage) => ({
         senderType: message.senderType,
         body: message.body,
         senderName: message.senderUser?.fullName,

@@ -4,6 +4,16 @@ import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
 
+type InboxTimelineItem = {
+  id: string;
+  subject: string;
+  channel: string;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+  messages: Array<{ body: string; senderType: string; createdAt: Date }>;
+};
+
 export async function GET(request: Request) {
   try {
     const claims = await getSessionClaims();
@@ -60,7 +70,7 @@ export async function GET(request: Request) {
       }),
     ]);
 
-    const [messages, timeline] = await Promise.all([
+    const [messages, timeline]: [unknown, InboxTimelineItem[]] = await Promise.all([
       db.chatMessage.findMany({
         where: { conversationId: conversation.id },
         orderBy: { createdAt: "asc" },
@@ -107,7 +117,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       messages,
-      timeline: timeline.map((item) => ({
+      timeline: timeline.map((item: InboxTimelineItem) => ({
         conversationId: item.id,
         subject: item.subject,
         channel: item.channel,

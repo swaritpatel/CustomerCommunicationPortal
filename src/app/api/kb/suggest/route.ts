@@ -3,6 +3,13 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { chatLog } from "@/modules/chat/log";
 
+type SuggestedArticleItem = {
+  id: string;
+  title: string;
+  slug: string;
+  excerpt: string | null;
+};
+
 export async function GET(request: Request) {
   try {
     const params = new URL(request.url).searchParams;
@@ -22,7 +29,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ suggestions: [] });
     }
 
-    const articles = await db.knowledgeBaseArticle.findMany({
+    const articles: SuggestedArticleItem[] = await db.knowledgeBaseArticle.findMany({
       where: {
         workspaceId: workspace.id,
         status: "PUBLISHED",
@@ -43,7 +50,7 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.json({
-      suggestions: articles.map((article) => ({
+      suggestions: articles.map((article: SuggestedArticleItem) => ({
         ...article,
         href: `/help/${workspace.slug}?article=${article.slug}`,
       })),

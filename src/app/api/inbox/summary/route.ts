@@ -5,6 +5,13 @@ import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
 import { summarizeConversation } from "@/modules/inbox/ai-summary";
 
+type SummaryMessageItem = {
+  senderType: "VISITOR" | "AGENT" | "SYSTEM";
+  body: string;
+  createdAt: Date;
+  senderUser: { fullName: string } | null;
+};
+
 export async function POST(request: Request) {
   try {
     const claims = await getSessionClaims();
@@ -50,7 +57,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const messages = await db.chatMessage.findMany({
+    const messages: SummaryMessageItem[] = await db.chatMessage.findMany({
       where: { conversationId: conversation.id },
       orderBy: { createdAt: "asc" },
       take: 120,
@@ -69,7 +76,7 @@ export async function POST(request: Request) {
       subject: conversation.subject,
       customerName: conversation.customerName,
       customerEmail: conversation.customerEmail,
-      messages: messages.map((message) => ({
+      messages: messages.map((message: SummaryMessageItem) => ({
         senderType: message.senderType,
         body: message.body,
         createdAt: message.createdAt,
