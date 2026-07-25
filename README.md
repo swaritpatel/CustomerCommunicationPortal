@@ -54,6 +54,7 @@ NEXT_PUBLIC_REALTIME_URL=http://localhost:3001
 REALTIME_SERVER_URL=http://127.0.0.1:3001
 REALTIME_INTERNAL_SECRET=dev-realtime-secret
 REALTIME_PORT=3001
+REDIS_URL=redis://localhost:6379
 ```
 
 ### How it works
@@ -63,11 +64,27 @@ REALTIME_PORT=3001
 - After message, reply, or typing changes, the API calls the realtime gateway `/emit` bridge.
 - Socket payloads are invalidation events only, not message bodies.
 - Clients fetch the authenticated REST snapshot after each event, preserving tenant isolation and server ordering.
+- If `REDIS_URL` is set, Socket.IO uses the Redis adapter so rooms and broadcasts work across multiple realtime instances.
 - Existing SSE streams and stale-connection polling remain as graceful fallback.
 
 ### Production scale path
 
-For multiple realtime gateway instances, add Redis pub/sub or the Socket.IO Redis adapter. Use rooms like `workspace:{workspaceId}` and `conversation:{conversationId}`, store messages with monotonic per-conversation sequence numbers, and on reconnect fetch anything after the last seen sequence.
+For multiple realtime gateway instances, run each instance with the same `REDIS_URL`. The gateway uses rooms like `workspace:{workspaceId}` and `conversation:{conversationId}` and Redis fans events out across processes. The database remains the source of truth; for stricter ordering at larger scale, store messages with monotonic per-conversation sequence numbers and on reconnect fetch anything after the last seen sequence.
+
+### Vercel + Render deployment
+
+Use Vercel for the Next.js app and Render for the long-lived Socket.IO gateway:
+
+1. Deploy this repo to Vercel with `npm run build`.
+2. Deploy the same repo to Render as a Web Service with start command `npm run realtime`.
+3. Create a hosted Redis database, such as Upstash or Redis Cloud, and copy its Redis URL.
+4. Set the same `REALTIME_INTERNAL_SECRET` on Vercel and Render.
+5. Set `NEXT_PUBLIC_REALTIME_URL` and `REALTIME_SERVER_URL` on Vercel to the Render realtime service URL.
+6. Set `REDIS_URL` on Render, and also on Vercel if you want env validation parity.
+
+Render sets `PORT` automatically; the realtime server uses `REALTIME_PORT`, then `PORT`, then `3001`.
+
+See `DEPLOYMENT.md` for the full production checklist and exact environment variables.
 
 ## Knowledge Base (Feature 05)
 

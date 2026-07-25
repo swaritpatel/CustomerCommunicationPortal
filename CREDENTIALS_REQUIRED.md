@@ -74,8 +74,12 @@ Email verification tooling:
   - Shared secret used by Next.js API routes when posting to the realtime gateway /emit bridge.
 - REALTIME_PORT
   - Port for `npm run realtime`, default 3001.
+- REDIS_URL
+  - Optional Redis connection string for Socket.IO cross-instance pub/sub.
+  - Local example: redis://localhost:6379.
+  - Free hosted options: Upstash Redis free tier, Redis Cloud free tier, or a local Docker Redis for demos.
 
-If these are missing or the realtime gateway is offline, chat still works through SSE and fallback polling.
+If the realtime variables are missing or the realtime gateway is offline, chat still works through SSE and fallback polling. If `REDIS_URL` is missing, realtime still works on one gateway instance with the in-memory Socket.IO adapter.
 
 ## Optional AI Chat Agent
 

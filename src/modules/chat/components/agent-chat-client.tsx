@@ -33,6 +33,7 @@ export function AgentChatClient() {
   const [activeId, setActiveId] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
+  const [isSending, setIsSending] = useState(false);
   const [agentTyping, setAgentTyping] = useState(false);
   const [visitorTyping, setVisitorTyping] = useState(false);
   const [agentOnline, setAgentOnline] = useState(false);
@@ -253,21 +254,32 @@ export function AgentChatClient() {
 
   const sendMessage = async () => {
     const trimmed = text.trim();
-    if (!activeId || !trimmed) {
+    if (!activeId || !trimmed || isSending) {
       return;
     }
 
-    await fetch("/api/chat/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ conversationId: activeId, text: trimmed }),
-    }).catch((error: unknown) => {
-      console.error("[chat:agent_send_failed]", error);
-      return null;
-    });
+    setIsSending(true);
+    try {
+      const response = await fetch("/api/chat/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversationId: activeId, text: trimmed }),
+      }).catch((error: unknown) => {
+        console.error("[chat:agent_send_failed]", error);
+        return null;
+      });
 
-    setText("");
-    await publishTyping(false);
+      if (!response || !response.ok) {
+        const payload = response ? ((await response.json().catch(() => null)) as { error?: string } | null) : null;
+        console.warn("[chat:agent_send_bad_status]", response?.status, payload?.error);
+        return;
+      }
+
+      setText("");
+      await publishTyping(false);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   return (
@@ -529,10 +541,16 @@ export function AgentChatClient() {
                     setText(event.target.value);
                     scheduleTyping(event.target.value.trim().length > 0);
                   }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                      event.preventDefault();
+                      void sendMessage();
+                    }
+                  }}
                   placeholder="Reply to visitor"
                 />
-                <button className="btn-primary self-end" onClick={() => void sendMessage()}>
-                  Send
+                <button className="btn-primary self-end" onClick={() => void sendMessage()} disabled={isSending || text.trim().length === 0}>
+                  {isSending ? "Sending..." : "Send"}
                 </button>
               </footer>
             </>

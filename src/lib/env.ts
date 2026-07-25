@@ -32,6 +32,7 @@ const serverEnvSchema = z.object({
   AI_POLICY_NAME: z.string().optional(),
   REALTIME_SERVER_URL: z.url().optional(),
   REALTIME_INTERNAL_SECRET: z.string().optional(),
+  REDIS_URL: z.url().optional(),
 });
 
 export const serverEnv = serverEnvSchema.parse({
@@ -60,6 +61,7 @@ export const serverEnv = serverEnvSchema.parse({
   AI_POLICY_NAME: process.env.AI_POLICY_NAME,
   REALTIME_SERVER_URL: process.env.REALTIME_SERVER_URL,
   REALTIME_INTERNAL_SECRET: process.env.REALTIME_INTERNAL_SECRET,
+  REDIS_URL: process.env.REDIS_URL,
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

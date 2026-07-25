@@ -49,6 +49,12 @@ export default async function Home() {
     return <HelpCenterClient workspaceSlug={customDomain.workspace.slug} />;
   }
 
+  const previewWorkspace = await db.workspace.findFirst({
+    orderBy: { createdAt: "asc" },
+    select: { slug: true },
+  });
+  const previewWidgetHref = previewWorkspace ? `/widget/embed?workspace=${previewWorkspace.slug}` : "/signup";
+
   return (
     <main className="min-h-screen overflow-hidden bg-[#f5f7fb] text-[var(--color-ink)]">
       <section
@@ -105,7 +111,7 @@ export default async function Home() {
                 <Link href="/signup" className="btn-primary px-6 py-4">
                   Create workspace
                 </Link>
-                <Link href="/widget/embed" className="rounded-full border border-white/18 bg-white/10 px-6 py-4 text-center font-black text-white backdrop-blur transition hover:bg-white/15">
+                <Link href={previewWidgetHref} className="rounded-full border border-white/18 bg-white/10 px-6 py-4 text-center font-black text-white backdrop-blur transition hover:bg-white/15">
                   Preview chat widget
                 </Link>
               </div>

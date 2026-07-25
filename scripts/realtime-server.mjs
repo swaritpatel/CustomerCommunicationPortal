@@ -1,14 +1,29 @@
 import http from "node:http";
+import { createAdapter } from "@socket.io/redis-adapter";
+import { createClient } from "redis";
 import { Server } from "socket.io";
 
-const port = Number.parseInt(process.env.REALTIME_PORT || "3001", 10);
+const port = Number.parseInt(process.env.REALTIME_PORT || process.env.PORT || "3001", 10);
 const internalSecret = process.env.REALTIME_INTERNAL_SECRET || "dev-realtime-secret";
-const allowedOrigin = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || "*";
+const allowedOriginConfig =
+  process.env.REALTIME_ALLOWED_ORIGINS ||
+  process.env.APP_URL ||
+  process.env.NEXT_PUBLIC_APP_URL ||
+  "*";
+const allowedOrigins = allowedOriginConfig
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const redisUrl = process.env.REDIS_URL;
+
+let adapterMode = "memory";
+let redisPublisher = null;
+let redisSubscriber = null;
 
 const httpServer = http.createServer(async (request, response) => {
   if (request.method === "GET" && request.url === "/health") {
     response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({ ok: true, service: "ccp-realtime" }));
+    response.end(JSON.stringify({ ok: true, service: "ccp-realtime", adapter: adapterMode }));
     return;
   }
 
@@ -56,11 +71,50 @@ const httpServer = http.createServer(async (request, response) => {
 
 const io = new Server(httpServer, {
   cors: {
-    origin: allowedOrigin === "*" ? true : allowedOrigin,
+    origin: allowedOrigins.includes("*") ? true : allowedOrigins,
     methods: ["GET", "POST"],
   },
   transports: ["websocket", "polling"],
 });
+
+async function configureRedisAdapter() {
+  if (!redisUrl) {
+    console.log("CCP realtime using in-memory Socket.IO adapter. Set REDIS_URL to scale across instances.");
+    return;
+  }
+
+  redisPublisher = createClient({
+    url: redisUrl,
+    socket: {
+      connectTimeout: 1_500,
+      reconnectStrategy: false,
+    },
+  });
+  redisSubscriber = redisPublisher.duplicate();
+
+  redisPublisher.on("error", (error) => {
+    console.warn("CCP realtime Redis publisher error:", error.message);
+  });
+  redisSubscriber.on("error", (error) => {
+    console.warn("CCP realtime Redis subscriber error:", error.message);
+  });
+
+  try {
+    await Promise.all([redisPublisher.connect(), redisSubscriber.connect()]);
+    io.adapter(createAdapter(redisPublisher, redisSubscriber));
+    adapterMode = "redis";
+    console.log("CCP realtime using Redis Socket.IO adapter.");
+  } catch (error) {
+    adapterMode = "memory";
+    console.warn("CCP realtime Redis adapter unavailable, falling back to memory:", error.message);
+    await Promise.allSettled([
+      redisPublisher?.quit(),
+      redisSubscriber?.quit(),
+    ]);
+    redisPublisher = null;
+    redisSubscriber = null;
+  }
+}
 
 io.on("connection", (socket) => {
   const conversationId = typeof socket.handshake.query.conversationId === "string"
@@ -85,6 +139,26 @@ io.on("connection", (socket) => {
   });
 });
 
-httpServer.listen(port, () => {
-  console.log(`CCP realtime server listening on http://localhost:${port}`);
+await configureRedisAdapter();
+
+httpServer.listen(port, "0.0.0.0", () => {
+  console.log(`CCP realtime server listening on http://0.0.0.0:${port}`);
+});
+
+async function shutdown() {
+  console.log("CCP realtime server shutting down.");
+  io.close();
+  httpServer.close();
+  await Promise.allSettled([
+    redisPublisher?.quit(),
+    redisSubscriber?.quit(),
+  ]);
+  process.exit(0);
+}
+
+process.on("SIGINT", () => {
+  void shutdown();
+});
+process.on("SIGTERM", () => {
+  void shutdown();
 });

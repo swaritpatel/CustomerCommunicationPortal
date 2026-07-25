@@ -490,6 +490,12 @@ export function AgentEmailClient() {
                   className="input min-h-[100px]"
                   value={text}
                   onChange={(event) => setText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                      event.preventDefault();
+                      void sendReply();
+                    }
+                  }}
                   placeholder="Reply to customer email"
                 />
                 <div className="grid gap-2 self-end">

@@ -49,6 +49,7 @@ export function WidgetChatClient() {
   const [text, setText] = useState("");
   const [suggestions, setSuggestions] = useState<KbSuggestion[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const typingDebounceRef = useRef<number | null>(null);
   const lastTypingValueRef = useRef(false);
   const streamRef = useRef<EventSource | null>(null);
@@ -112,7 +113,7 @@ export function WidgetChatClient() {
       .catch((error: unknown) => {
         console.error(error);
       });
-  }, [workspace, storagePrefix]);
+  }, [workspace, storagePrefix, bootstrapAttempt]);
 
   useEffect(() => {
     const query = text.trim();
@@ -171,6 +172,8 @@ export function WidgetChatClient() {
             window.localStorage.removeItem(`${storagePrefix}.visitorToken`);
             setConversationId("");
             setVisitorToken("");
+            setMessages([]);
+            setBootstrapAttempt((current) => current + 1);
           }
         }
         return;
@@ -300,7 +303,7 @@ export function WidgetChatClient() {
     setIsSending(true);
 
     try {
-      await fetch("/api/chat/messages", {
+      const response = await fetch("/api/chat/messages", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -311,6 +314,12 @@ export function WidgetChatClient() {
         console.error("[chat:widget_send_failed]", error);
         return null;
       });
+
+      if (!response || !response.ok) {
+        const payload = response ? ((await response.json().catch(() => null)) as { error?: string } | null) : null;
+        console.warn("[chat:widget_send_bad_status]", response?.status, payload?.error);
+        return;
+      }
 
       setText("");
       setSuggestions([]);
@@ -332,6 +341,57 @@ export function WidgetChatClient() {
   };
 
   const agentDisplayName = (message: Message) => message.senderUser?.fullName || "CCP Agent";
+
+  if (!workspace) {
+    return (
+      <div className="widget-shell missing">
+        <div className="empty-state">
+          <div className="avatar brand">CCP</div>
+          <strong>Workspace required</strong>
+          <p>Open this widget with a workspace slug, or install it using the script tag from your dashboard.</p>
+        </div>
+        <style jsx>{`
+          .widget-shell {
+            min-height: 100%;
+            display: grid;
+            place-items: center;
+            background: #fff8f1;
+            font-family: system-ui, -apple-system, sans-serif;
+            padding: 24px;
+          }
+          .empty-state {
+            display: grid;
+            gap: 10px;
+            justify-items: center;
+            max-width: 280px;
+            text-align: center;
+            color: #2c2118;
+          }
+          .empty-state p {
+            margin: 0;
+            color: #7d6b59;
+            font-size: 13px;
+            line-height: 1.5;
+          }
+          .avatar {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+          }
+          .avatar.brand {
+            width: 44px;
+            height: 44px;
+            font-size: 12px;
+            color: #fff;
+            background: #b65a34;
+          }
+        `}</style>
+      </div>
+    );
+  }
 
   return (
     <div className="widget-shell">
@@ -408,6 +468,12 @@ export function WidgetChatClient() {
           onChange={(event) => {
             setText(event.target.value);
             scheduleTyping(event.target.value.trim().length > 0);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              void sendMessage();
+            }
           }}
           placeholder="Write a message"
           rows={2}

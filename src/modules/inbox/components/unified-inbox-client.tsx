@@ -677,6 +677,12 @@ export function UnifiedInboxClient() {
                   className="input min-h-[100px]"
                   value={text}
                   onChange={(event) => setText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                      event.preventDefault();
+                      void sendReply();
+                    }
+                  }}
                   placeholder={activeConversation.channel === "EMAIL" ? "Reply by email" : "Reply in chat"}
                 />
                 <div className="grid gap-2 self-end">
