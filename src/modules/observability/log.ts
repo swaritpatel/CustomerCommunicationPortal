@@ -45,11 +45,12 @@ export function appLog(level: AppLogLevel, event: string, details?: Record<strin
     return;
   }
 
+  const safeDetails = details ? (redact(details) as Record<string, unknown>) : {};
   const payload = {
     timestamp: new Date().toISOString(),
     level,
     event,
-    ...(details ? redact(details) : {}),
+    ...safeDetails,
   };
   const message = JSON.stringify(payload);
 

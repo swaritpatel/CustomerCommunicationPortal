@@ -5,7 +5,10 @@ import { appLog, getErrorDetails } from "@/modules/observability/log";
 const sensitiveQueryPattern = /code|token|secret|password|state/i;
 
 type RouteContext = Record<string, unknown>;
-type ApiHandler = (request: Request, context: RouteContext) => Response | Promise<Response>;
+type ApiHandler = (
+  request: Request,
+  context: RouteContext,
+) => Response | undefined | Promise<Response | undefined>;
 
 function getRequestId(request: Request) {
   return request.headers.get("x-request-id") || crypto.randomUUID();
@@ -50,7 +53,9 @@ export function withApiLogging(handler: ApiHandler, name: string): ApiHandler {
     appLog("info", "api.route.started", baseContext);
 
     try {
-      const response = await handler(request, context);
+      const response =
+        (await handler(request, context)) ??
+        NextResponse.json({ error: "Route handler did not return a response" }, { status: 500 });
       response.headers.set("x-ccp-request-id", String(baseContext.requestId));
 
       if (baseContext.threadId) {
