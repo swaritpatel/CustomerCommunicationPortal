@@ -714,11 +714,13 @@ export function UnifiedInboxClient() {
           {activeConversation ? (
             <>
               <header className="border-b border-[var(--color-line)] pb-4">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0">
                     <p className="eyebrow">{channelLabel(activeConversation.channel)} thread</p>
-                    <h2 className="mt-2 text-2xl font-extrabold tracking-[-0.04em]">{activeConversation.subject}</h2>
-                    <p className="mt-1 text-sm text-[var(--color-muted)]">
+                    <h2 className="mt-2 max-w-2xl break-words text-2xl font-extrabold">
+                      {activeConversation.subject}
+                    </h2>
+                    <p className="mt-1 max-w-2xl break-words text-sm text-[var(--color-muted)]">
                       {customerLabel(activeConversation)} · {activeConversation.customerEmail || "No email"}
                     </p>
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -736,14 +738,14 @@ export function UnifiedInboxClient() {
                     </div>
                   </div>
 
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    <button className="btn-secondary" disabled={isMutating || activeConversation.status === "OPEN"} onClick={() => void updateStatus("OPEN")}>
+                  <div className="flex shrink-0 flex-wrap gap-2 xl:justify-end">
+                    <button className="btn-secondary min-w-24 px-4 py-2 text-sm whitespace-nowrap" disabled={isMutating || activeConversation.status === "OPEN"} onClick={() => void updateStatus("OPEN")}>
                       Reopen
                     </button>
-                    <button className="btn-secondary" disabled={isMutating || activeConversation.status === "SNOOZED"} onClick={() => void updateStatus("SNOOZED")}>
+                    <button className="btn-secondary min-w-24 px-4 py-2 text-sm whitespace-nowrap" disabled={isMutating || activeConversation.status === "SNOOZED"} onClick={() => void updateStatus("SNOOZED")}>
                       Snooze
                     </button>
-                    <button className="btn-primary" disabled={isMutating || activeConversation.status === "RESOLVED"} onClick={() => void updateStatus("RESOLVED")}>
+                    <button className="btn-primary min-w-24 px-4 py-2 text-sm whitespace-nowrap" disabled={isMutating || activeConversation.status === "RESOLVED"} onClick={() => void updateStatus("RESOLVED")}>
                       Resolve
                     </button>
                   </div>
