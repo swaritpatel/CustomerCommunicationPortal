@@ -156,6 +156,7 @@ export async function generatePolicyAwareReply(input: GenerateReplyInput): Promi
 
   const userPrompt = [
     `Workspace: ${input.workspaceName?.trim() || "CCP Workspace"}`,
+    `Current date/time: ${new Date().toISOString()}`,
     "",
     "Recent transcript:",
     transcript || "(No prior messages)",

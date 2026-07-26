@@ -94,7 +94,10 @@ export function PoliciesAdminClient({ workspaceName }: { workspaceName: string }
   }, []);
 
   useEffect(() => {
-    void loadPolicies();
+    const timeout = window.setTimeout(() => {
+      void loadPolicies();
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, [loadPolicies]);
 
   const filteredPolicies = useMemo(() => {

@@ -161,6 +161,7 @@ export async function generateEmailAcknowledgement(input: AcknowledgementInput) 
           {
             role: "user",
             content: [
+              `Current date/time: ${new Date().toISOString()}`,
               `Customer name: ${input.customerName?.trim() || "there"}`,
               `Email subject: ${input.subject.trim() || "(No subject)"}`,
               "",
@@ -199,13 +200,15 @@ export async function generateEmailAcknowledgement(input: AcknowledgementInput) 
       return null;
     }
 
+    const policyIds = decision?.policyIds ?? [];
+
     return {
       text: normalized,
       model,
       shouldResolve:
         Boolean(decision?.shouldResolve) &&
-        decision.policyIds.some((policyId) => autoResolvablePolicyIds.has(policyId)),
-      policyIds: decision?.policyIds ?? [],
+        policyIds.some((policyId) => autoResolvablePolicyIds.has(policyId)),
+      policyIds,
     };
   } catch (error) {
     chatLog("warn", "email_ack_ai_exception", {

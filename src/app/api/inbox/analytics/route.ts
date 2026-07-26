@@ -111,7 +111,9 @@ async function GETHandler() {
       byStatus[conversation.status] += 1;
 
       const firstVisitor = conversation.messages.find((message: AnalyticsMessageItem) => message.senderType === "VISITOR");
-      const firstAgent = conversation.messages.find((message: AnalyticsMessageItem) => message.senderType === "AGENT");
+      const firstAgent = conversation.messages.find((message: AnalyticsMessageItem) =>
+        message.senderType === "AGENT" || message.senderType === "SYSTEM"
+      );
 
       if (firstVisitor) {
         const hour = firstVisitor.createdAt.getHours();

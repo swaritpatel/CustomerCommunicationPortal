@@ -63,7 +63,9 @@ function buildSla(conversation: {
   messages: SlaMessageItem[];
 }) {
   const firstVisitor = conversation.messages.find((message: SlaMessageItem) => message.senderType === "VISITOR");
-  const firstAgent = conversation.messages.find((message: SlaMessageItem) => message.senderType === "AGENT");
+  const firstAgent = conversation.messages.find((message: SlaMessageItem) =>
+    message.senderType === "AGENT" || message.senderType === "SYSTEM"
+  );
   const now = Date.now();
 
   const firstResponseMinutes =

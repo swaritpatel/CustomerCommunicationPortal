@@ -133,6 +133,32 @@ const DEFAULT_CANNED_RESPONSES: CannedResponse[] = [
   },
 ];
 
+function readInitialParam(name: string) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return new URLSearchParams(window.location.search).get(name);
+}
+
+function readInitialChannelFilter(): ChannelFilter {
+  const value = readInitialParam("channel");
+  return value === "EMAIL" || value === "CHAT_WIDGET" ? value : "ALL";
+}
+
+function readInitialStatusFilter(): StatusFilter {
+  const value = readInitialParam("status");
+  return value === "OPEN" || value === "SNOOZED" || value === "RESOLVED" || value === "ALL" ? value : "OPEN";
+}
+
+function readInitialAssigneeFilter() {
+  return readInitialParam("assignee") || "ALL";
+}
+
+function readInitialConversationId() {
+  return readInitialParam("conversation") || "";
+}
+
 function readStoredCannedResponses() {
   if (typeof window === "undefined") {
     return DEFAULT_CANNED_RESPONSES;
@@ -188,15 +214,15 @@ function customerLabel(conversation: InboxConversation) {
 }
 
 export function UnifiedInboxClient() {
-  const [channelFilter, setChannelFilter] = useState<ChannelFilter>("ALL");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("OPEN");
-  const [assigneeFilter, setAssigneeFilter] = useState("ALL");
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>(readInitialChannelFilter);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(readInitialStatusFilter);
+  const [assigneeFilter, setAssigneeFilter] = useState(readInitialAssigneeFilter);
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
   const [conversationError, setConversationError] = useState("");
   const [members, setMembers] = useState<Member[]>([]);
   const [viewer, setViewer] = useState<{ id: string; role: "ADMIN" | "AGENT" } | null>(null);
-  const [activeId, setActiveId] = useState("");
+  const [activeId, setActiveId] = useState(readInitialConversationId);
   const [messages, setMessages] = useState<Message[]>([]);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [contactProfile, setContactProfile] = useState<ContactProfile | null>(null);
@@ -269,8 +295,15 @@ export function UnifiedInboxClient() {
       setMembers(payload?.members ?? []);
       setViewer(payload?.viewer ?? null);
 
-      if (!activeId || !items.some((conversation) => conversation.id === activeId)) {
+      const requestedId = readInitialConversationId();
+      const preferredId = requestedId && items.some((conversation) => conversation.id === requestedId)
+        ? requestedId
+        : activeId;
+
+      if (!preferredId || !items.some((conversation) => conversation.id === preferredId)) {
         setActiveId(items[0]?.id ?? "");
+      } else if (preferredId !== activeId) {
+        setActiveId(preferredId);
       }
     } catch (error) {
       setConversations([]);
