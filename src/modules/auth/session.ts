@@ -91,3 +91,19 @@ export async function issueSession(input: SessionClaims) {
   cookieStore.set("relaydesk_access", accessToken, sessionCookieOptions(ACCESS_TOKEN_TTL_SECONDS));
   cookieStore.set("relaydesk_refresh", refreshToken, sessionCookieOptions(REFRESH_TOKEN_TTL_SECONDS));
 }
+
+export async function clearSession() {
+  const cookieStore = await cookies();
+  const refreshToken = cookieStore.get("relaydesk_refresh")?.value;
+
+  if (refreshToken) {
+    const refreshTokenHash = createHash("sha256").update(refreshToken).digest("hex");
+
+    await db.session.deleteMany({
+      where: { refreshTokenHash },
+    });
+  }
+
+  cookieStore.set("relaydesk_access", "", sessionCookieOptions(0));
+  cookieStore.set("relaydesk_refresh", "", sessionCookieOptions(0));
+}

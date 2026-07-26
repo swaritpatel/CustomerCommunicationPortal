@@ -6,7 +6,7 @@ import { db, type DbTransactionClient } from "@/lib/db";
 import type { AuthActionState } from "@/modules/auth/form-state";
 import { loginSchema, signupSchema } from "@/modules/auth/schemas";
 import { hashPassword, verifyPassword } from "@/modules/auth/password";
-import { issueSession } from "@/modules/auth/session";
+import { clearSession, issueSession } from "@/modules/auth/session";
 import { toWorkspaceSlug } from "@/modules/workspaces/slug";
 
 function getString(formData: FormData, key: string) {
@@ -209,4 +209,9 @@ export async function loginAction(
   });
 
   redirect("/dashboard");
+}
+
+export async function logoutAction() {
+  await clearSession();
+  redirect("/login");
 }

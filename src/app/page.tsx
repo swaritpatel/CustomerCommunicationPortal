@@ -2,6 +2,8 @@ import Link from "next/link";
 import { headers } from "next/headers";
 
 import { db } from "@/lib/db";
+import { logoutAction } from "@/modules/auth/actions";
+import { getSessionClaims } from "@/modules/auth/session";
 import { HelpCenterClient } from "@/modules/kb/components/help-center-client";
 
 function normalizeHost(host: string | null) {
@@ -53,6 +55,7 @@ export default async function Home() {
     orderBy: { createdAt: "asc" },
     select: { slug: true },
   });
+  const claims = await getSessionClaims();
   const previewWidgetHref = previewWorkspace ? `/widget/embed?workspace=${previewWorkspace.slug}` : "/signup";
 
   return (
@@ -83,17 +86,33 @@ export default async function Home() {
               <a href="#workflow">Workflow</a>
               <a href="#features">Features</a>
             </nav>
-            <div className="flex items-center gap-2">
-              <Link href="/login" className="rounded-full border border-white/15 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/10">
-                Log in
-              </Link>
-              <Link
-                href="/signup"
-                className="min-w-[104px] rounded-full bg-gradient-to-r from-[#b943ff] via-[#ec3d99] to-[#37c8f3] px-5 py-2.5 text-center text-sm font-black text-white shadow-[0_12px_34px_rgba(236,61,153,0.36)] transition hover:scale-[1.02]"
-              >
-                Sign up
-              </Link>
-            </div>
+            {claims ? (
+              <div className="flex items-center gap-2">
+                <Link href="/dashboard" className="rounded-full border border-white/15 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/10">
+                  Dashboard
+                </Link>
+                <form action={logoutAction}>
+                  <button
+                    type="submit"
+                    className="min-w-[104px] rounded-full bg-white px-5 py-2.5 text-center text-sm font-black text-black transition hover:scale-[1.02]"
+                  >
+                    Logout
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Link href="/login" className="rounded-full border border-white/15 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/10">
+                  Log in
+                </Link>
+                <Link
+                  href="/signup"
+                  className="min-w-[104px] rounded-full bg-gradient-to-r from-[#b943ff] via-[#ec3d99] to-[#37c8f3] px-5 py-2.5 text-center text-sm font-black text-white shadow-[0_12px_34px_rgba(236,61,153,0.36)] transition hover:scale-[1.02]"
+                >
+                  Sign up
+                </Link>
+              </div>
+            )}
           </header>
 
           <div className="grid flex-1 items-center py-12 sm:py-16 lg:grid-cols-[0.78fr_1fr]">

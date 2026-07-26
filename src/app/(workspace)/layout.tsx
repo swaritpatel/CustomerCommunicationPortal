@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 
+import { logoutAction } from "@/modules/auth/actions";
 import { requireActiveMembership } from "@/modules/auth/guards";
 
 const navigation = [
@@ -37,7 +38,7 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
             </div>
 
             <nav className="flex flex-wrap items-center gap-3 text-sm font-semibold text-[var(--color-muted)]">
-              <Link href="/" className="btn-secondary">
+              <Link href="/dashboard" className="btn-secondary">
                 Overview
               </Link>
               {navigation.map((item) => (
@@ -49,6 +50,11 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
                   {item.label}
                 </Link>
               ))}
+              <form action={logoutAction}>
+                <button type="submit" className="btn-secondary">
+                  Logout
+                </button>
+              </form>
             </nav>
           </div>
         </header>
