@@ -1049,20 +1049,6 @@ Thanks,
 Swarit
 ```
 
-## Known Limitations And Future Work
-
-- Gmail Pub/Sub push notifications are implemented, but the push endpoint currently uses a shared secret query parameter instead of Pub/Sub authenticated push JWT verification.
-- Gmail push notifications trigger a bounded Gmail API sync path; a future version can use Gmail history delta replay more deeply for very large inboxes.
-- Add richer RBAC beyond admin/agent.
-- Add audit log UI for all sensitive actions.
-- Add production DNS verification for custom help center domains.
-- Add attachment support for chat/email.
-- Add per-conversation sequence IDs for stricter realtime replay.
-- Add OpenTelemetry tracing for cross-service request flow.
-- Add more robust duplicate detection for email provider retries.
-- Add rate limiting for public widget and inbound email endpoints.
-- Add AI evaluation tests for policies and auto-resolve behavior.
-
 ## Useful Commands
 
 ```bash
@@ -1077,14 +1063,3 @@ npx prisma db push
 npm run email:verify
 ```
 
-## Repository Hygiene
-
-- Keep `.env.local` untracked.
-- Do not commit `.next`, logs, screenshots with secrets, or generated temp files.
-- Commit feature work incrementally.
-- Prefer commit messages like:
-  - `Add Gmail OAuth inbox sync`
-  - `Implement unified inbox assignment controls`
-  - `Add policy-aware AI chat replies`
-  - `Add ticket numbers and resolution feedback`
-  - `Document architecture and setup`
