@@ -23,6 +23,18 @@ type GenerateReplyInput = {
   supportPolicies?: MatchedSupportPolicy[];
 };
 
+type ReplyDecision = {
+  body: string;
+  shouldResolve: boolean;
+  policyIds: string[];
+};
+
+type ProviderAttempt = {
+  provider: string;
+  model: string;
+  run: () => Promise<unknown>;
+};
+
 export type GenerateReplyResult =
   | {
       kind: "skip";
@@ -72,6 +84,33 @@ function extractAssistantReply(payload: unknown) {
   return reply.length > 0 ? reply : null;
 }
 
+function extractGeminiReply(payload: unknown) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const candidates = (payload as { candidates?: unknown }).candidates;
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    return null;
+  }
+
+  const first = candidates[0] as { content?: { parts?: unknown } };
+  const parts = first.content?.parts;
+  if (!Array.isArray(parts)) {
+    return null;
+  }
+
+  const reply = parts
+    .map((part) => {
+      const text = (part as { text?: unknown }).text;
+      return typeof text === "string" ? text : "";
+    })
+    .join("")
+    .trim();
+
+  return reply.length > 0 ? reply : null;
+}
+
 function parseJsonObject(content: string) {
   const trimmed = content.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim();
@@ -84,8 +123,7 @@ function parseJsonObject(content: string) {
   }
 }
 
-function extractReplyDecision(payload: unknown) {
-  const content = extractAssistantReply(payload);
+function extractReplyDecisionFromContent(content: string | null): ReplyDecision | null {
   if (!content) {
     return null;
   }
@@ -118,13 +156,94 @@ function extractReplyDecision(payload: unknown) {
   };
 }
 
+function extractOpenAiReplyDecision(payload: unknown) {
+  return extractReplyDecisionFromContent(extractAssistantReply(payload));
+}
+
+function extractGeminiReplyDecision(payload: unknown) {
+  return extractReplyDecisionFromContent(extractGeminiReply(payload));
+}
+
+async function callOpenAiCompatibleProvider(input: {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+}) {
+  const response = await fetch(`${input.baseUrl.replace(/\/$/, "")}/v1/chat/completions`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${input.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: input.model,
+      temperature: serverEnv.AI_TEMPERATURE ?? 0.6,
+      max_tokens: serverEnv.AI_MAX_TOKENS ?? 280,
+      messages: [
+        { role: "system", content: input.systemPrompt },
+        { role: "user", content: input.userPrompt },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`provider_status_${response.status}`);
+  }
+
+  return response.json().catch(() => null) as Promise<unknown>;
+}
+
+async function callGeminiProvider(input: {
+  apiKey: string;
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+}) {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+      input.model,
+    )}:generateContent?key=${encodeURIComponent(input.apiKey)}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: input.systemPrompt }],
+        },
+        generationConfig: {
+          temperature: serverEnv.AI_TEMPERATURE ?? 0.6,
+          maxOutputTokens: serverEnv.AI_MAX_TOKENS ?? 280,
+          responseMimeType: "application/json",
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: input.userPrompt }],
+          },
+        ],
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`provider_status_${response.status}`);
+  }
+
+  return response.json().catch(() => null) as Promise<unknown>;
+}
+
+function parseGroqKeys() {
+  return (serverEnv.GROQ_API_KEYS ?? "")
+    .split(",")
+    .map((key) => key.trim())
+    .filter(Boolean);
+}
+
 export async function generatePolicyAwareReply(input: GenerateReplyInput): Promise<GenerateReplyResult> {
   if (serverEnv.AI_CHAT_MODE !== "autoreply") {
     return { kind: "skip", reason: "ai_chat_mode_not_autoreply" };
-  }
-
-  if (!serverEnv.AI_API_KEY) {
-    return { kind: "skip", reason: "ai_api_key_missing" };
   }
 
   const policy = getAgentPolicy(serverEnv.AI_POLICY_NAME);
@@ -137,8 +256,6 @@ export async function generatePolicyAwareReply(input: GenerateReplyInput): Promi
     };
   }
 
-  const model = serverEnv.AI_MODEL || "gpt-4o-mini";
-  const baseUrl = (serverEnv.AI_BASE_URL || "https://api.openai.com").replace(/\/$/, "");
   const systemPrompt = [
     buildPolicySystemPrompt(policy),
     "",
@@ -168,55 +285,101 @@ export async function generatePolicyAwareReply(input: GenerateReplyInput): Promi
     "Write the next best support response now.",
   ].join("\n");
 
-  try {
-    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${serverEnv.AI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model,
-        temperature: serverEnv.AI_TEMPERATURE ?? 0.6,
-        max_tokens: serverEnv.AI_MAX_TOKENS ?? 280,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-      }),
-    });
+  const attempts: ProviderAttempt[] = [];
 
-    if (!response.ok) {
-      chatLog("warn", "ai_reply_request_failed", {
-        status: response.status,
-      });
-      return { kind: "skip", reason: `ai_provider_status_${response.status}` };
-    }
-
-    const payload = (await response.json().catch(() => null)) as unknown;
-    const decision = extractReplyDecision(payload);
-
-    if (!decision) {
-      return { kind: "skip", reason: "ai_empty_reply" };
-    }
-
-    if (decision.body.toUpperCase() === "HANDOFF_REQUIRED") {
-      return { kind: "handoff", reason: "model_requested_handoff" };
-    }
-
-    return {
-      kind: "reply",
-      body: decision.body,
+  if (serverEnv.AI_API_KEY) {
+    const model = serverEnv.AI_MODEL || "gpt-4o-mini";
+    attempts.push({
+      provider: serverEnv.AI_PROVIDER || "openai",
       model,
-      shouldResolve:
-        decision.shouldResolve &&
-        decision.policyIds.some((policyId) => autoResolvablePolicyIds.has(policyId)),
-      policyIds: decision.policyIds,
-    };
-  } catch (error) {
-    chatLog("warn", "ai_reply_exception", {
-      error: error instanceof Error ? error.message : "unknown_error",
+      run: () =>
+        callOpenAiCompatibleProvider({
+          baseUrl: serverEnv.AI_BASE_URL || "https://api.openai.com",
+          apiKey: serverEnv.AI_API_KEY!,
+          model,
+          systemPrompt,
+          userPrompt,
+        }),
     });
-    return { kind: "skip", reason: "ai_request_exception" };
   }
+
+  if (serverEnv.GEMINI_API_KEY) {
+    const model = serverEnv.GEMINI_MODEL || "gemini-1.5-flash";
+    attempts.push({
+      provider: "gemini",
+      model,
+      run: () =>
+        callGeminiProvider({
+          apiKey: serverEnv.GEMINI_API_KEY!,
+          model,
+          systemPrompt,
+          userPrompt,
+        }),
+    });
+  }
+
+  const groqModel = serverEnv.GROQ_MODEL || "llama-3.1-8b-instant";
+  parseGroqKeys().forEach((apiKey, index) => {
+    attempts.push({
+      provider: `groq_${index + 1}`,
+      model: groqModel,
+      run: () =>
+        callOpenAiCompatibleProvider({
+          baseUrl: "https://api.groq.com/openai",
+          apiKey,
+          model: groqModel,
+          systemPrompt,
+          userPrompt,
+        }),
+    });
+  });
+
+  if (attempts.length === 0) {
+    return { kind: "skip", reason: "ai_provider_keys_missing" };
+  }
+
+  for (const attempt of attempts) {
+    try {
+      const payload = await attempt.run();
+      const decision =
+        attempt.provider === "gemini"
+          ? extractGeminiReplyDecision(payload)
+          : extractOpenAiReplyDecision(payload);
+
+      if (!decision) {
+        chatLog("warn", "ai_reply_empty_from_provider", {
+          provider: attempt.provider,
+          model: attempt.model,
+        });
+        continue;
+      }
+
+      if (decision.body.toUpperCase() === "HANDOFF_REQUIRED") {
+        return { kind: "handoff", reason: `model_requested_handoff_${attempt.provider}` };
+      }
+
+      chatLog("info", "ai_reply_provider_succeeded", {
+        provider: attempt.provider,
+        model: attempt.model,
+      });
+
+      return {
+        kind: "reply",
+        body: decision.body,
+        model: `${attempt.provider}:${attempt.model}`,
+        shouldResolve:
+          decision.shouldResolve &&
+          decision.policyIds.some((policyId) => autoResolvablePolicyIds.has(policyId)),
+        policyIds: decision.policyIds,
+      };
+    } catch (error) {
+      chatLog("warn", "ai_reply_provider_failed", {
+        provider: attempt.provider,
+        model: attempt.model,
+        error: error instanceof Error ? error.message : "unknown_error",
+      });
+    }
+  }
+
+  return { kind: "skip", reason: "all_ai_providers_failed" };
 }
