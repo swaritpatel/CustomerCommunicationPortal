@@ -82,6 +82,7 @@ export default async function Home() {
               </span>
             </Link>
             <nav className="hidden items-center gap-6 text-sm font-bold text-white/72 lg:flex">
+              <Link href="/overview">Overview</Link>
               <a href="#platform">Platform</a>
               <a href="#workflow">Workflow</a>
               <a href="#features">Features</a>

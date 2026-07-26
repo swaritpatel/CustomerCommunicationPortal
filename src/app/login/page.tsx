@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { LoginForm } from "@/modules/auth/components/login-form";
+import { PublicNavbar } from "@/modules/navigation/public-navbar";
 import { findUsableInvite } from "@/modules/team/invites";
 
 type LoginPageProps = {
@@ -16,8 +17,10 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const usableInvite = invite && invite.status === "PENDING" && invite.expiresAt > new Date() ? invite : null;
 
   return (
-    <main className="min-h-screen px-6 py-8 sm:px-8 lg:px-10">
-      <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-7xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+    <>
+      <PublicNavbar />
+      <main className="px-6 py-8 sm:px-8 lg:px-10">
+      <div className="mx-auto grid min-h-[calc(100vh-8rem)] w-full max-w-7xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <section className="card fade-up hidden rounded-[2rem] p-8 lg:flex lg:flex-col lg:justify-between">
           <div>
             <p className="eyebrow">CCP / Login</p>
@@ -65,6 +68,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           </div>
         </section>
       </div>
-    </main>
+      </main>
+    </>
   );
 }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { SignupForm } from "@/modules/auth/components/signup-form";
+import { PublicNavbar } from "@/modules/navigation/public-navbar";
 import { findUsableInvite } from "@/modules/team/invites";
 
 type SignupPageProps = {
@@ -16,8 +17,10 @@ export default async function SignupPage({ searchParams }: SignupPageProps) {
   const usableInvite = invite && invite.status === "PENDING" && invite.expiresAt > new Date() ? invite : null;
 
   return (
-    <main className="min-h-screen px-6 py-8 sm:px-8 lg:px-10">
-      <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-7xl gap-6 lg:grid-cols-[0.94fr_1.06fr]">
+    <>
+      <PublicNavbar />
+      <main className="px-6 py-8 sm:px-8 lg:px-10">
+      <div className="mx-auto grid min-h-[calc(100vh-8rem)] w-full max-w-7xl gap-6 lg:grid-cols-[0.94fr_1.06fr]">
         <section className="card fade-up flex rounded-[2rem] p-6 sm:p-8 lg:p-10">
           <div className="m-auto w-full max-w-md">
             <p className="eyebrow">Workspace bootstrap</p>
@@ -69,6 +72,7 @@ export default async function SignupPage({ searchParams }: SignupPageProps) {
           </div>
         </section>
       </div>
-    </main>
+      </main>
+    </>
   );
 }

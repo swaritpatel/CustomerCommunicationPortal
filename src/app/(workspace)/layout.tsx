@@ -5,6 +5,8 @@ import { logoutAction } from "@/modules/auth/actions";
 import { requireActiveMembership } from "@/modules/auth/guards";
 
 const navigation = [
+  { href: "/", label: "Home" },
+  { href: "/overview", label: "Overview" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/chat", label: "Live Chat" },
   { href: "/inbox", label: "Unified Inbox" },
@@ -39,9 +41,6 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
             </div>
 
             <nav className="flex flex-wrap items-center gap-3 text-sm font-semibold text-[var(--color-muted)]">
-              <Link href="/dashboard" className="btn-secondary">
-                Overview
-              </Link>
               {navigation.map((item) => (
                 <Link
                   key={item.href}
