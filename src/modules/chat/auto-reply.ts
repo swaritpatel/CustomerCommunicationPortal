@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { generatePolicyAwareReply } from "@/modules/chat/agent-reply";
 import { chatLog } from "@/modules/chat/log";
+import { findRelevantSupportPolicies } from "@/modules/policies/support-policies";
 
 type RecentChatMessage = {
   senderType: "VISITOR" | "AGENT" | "SYSTEM";
@@ -59,10 +60,15 @@ export async function runAutoReplyWorkflow(input: {
         },
       },
     });
+    const supportPolicies = await findRelevantSupportPolicies({
+      workspaceId: input.workspaceId,
+      text: input.latestVisitorText,
+    });
 
     const aiReply = await generatePolicyAwareReply({
       workspaceName: input.workspaceName,
       latestVisitorMessage: input.latestVisitorText,
+      supportPolicies,
       recentMessages: recentMessages.reverse().map((message: RecentChatMessage) => ({
         senderType: message.senderType,
         body: message.body,
@@ -109,13 +115,18 @@ export async function runAutoReplyWorkflow(input: {
       }),
       db.conversation.update({
         where: { id: input.conversationId },
-        data: { updatedAt: now },
+        data: {
+          updatedAt: now,
+          status: aiReply.shouldResolve ? "RESOLVED" : undefined,
+        },
       }),
     ]);
 
     chatLog("info", "ai_reply_sent", {
       conversationId: input.conversationId,
       model: aiReply.model,
+      policyIds: aiReply.policyIds,
+      autoResolved: aiReply.shouldResolve,
     });
   } catch (error) {
     chatLog("warn", "ai_reply_workflow_failed", {

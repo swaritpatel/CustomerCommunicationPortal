@@ -73,8 +73,7 @@ export function buildPolicySystemPrompt(policy: AgentPolicy) {
     ...policy.disallowed.map((line) => `- ${line}`),
     "",
     "Output requirements:",
-    "- Reply with plain text only.",
     "- Keep the response to at most 120 words.",
-    "- If the request needs escalation, reply with: HANDOFF_REQUIRED",
+    "- If the request needs escalation, use exactly: HANDOFF_REQUIRED as the reply value.",
   ].join("\n");
 }

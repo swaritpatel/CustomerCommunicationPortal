@@ -113,6 +113,7 @@ model User {
   chatMessages          ChatMessage[]
   typingStates          ChatTypingState[]
   cannedResponses       CannedResponse[]
+  supportPolicies       SupportPolicy[]
   knowledgeBaseArticles KnowledgeBaseArticle[]
 }
 
@@ -134,6 +135,7 @@ model Workspace {
   emailReferences         EmailMessageReference[]
   gmailIntegrations       GmailIntegration[]
   cannedResponses         CannedResponse[]
+  supportPolicies         SupportPolicy[]
   knowledgeBaseCategories KnowledgeBaseCategory[]
   knowledgeBaseArticles   KnowledgeBaseArticle[]
   knowledgeBaseDomains    KnowledgeBaseDomain[]
@@ -336,6 +338,27 @@ model AuditLog {
 
   @@index([workspaceId, createdAt])
   @@index([actorUserId, createdAt])
+}
+
+model SupportPolicy {
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  title              String
+  category           String
+  keywords           String[]  @default([])
+  publicGuidance     String
+  internalNotes      String?
+  autoResolveEnabled Boolean   @default(false)
+  isActive           Boolean   @default(true)
+  sortOrder          Int       @default(0)
+  createdById        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy          User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, isActive, updatedAt])
+  @@index([workspaceId, category])
 }
 
 model KnowledgeBaseCategory {

@@ -31,6 +31,8 @@ export type EmailSendJob = {
   inReplyTo: string | null;
   references: string[];
   agentUserId?: string;
+  autoResolveAfterSend?: boolean;
+  autoResolvePolicyIds?: string[];
   webhookOccurredAt: string;
 };
 

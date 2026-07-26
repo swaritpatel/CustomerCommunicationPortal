@@ -5,6 +5,7 @@ import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
 import { buildAutoReplyDraft } from "@/modules/email/ai-draft";
 import { withApiLogging } from "@/modules/observability/api";
+import { findRelevantSupportPolicies } from "@/modules/policies/support-policies";
 
 type DraftMessageItem = {
   senderType: "VISITOR" | "AGENT" | "SYSTEM";
@@ -65,12 +66,18 @@ async function POSTHandler(request: Request) {
         body: true,
       },
     });
+    const latestCustomerMessage = [...messages].reverse().find((message) => message.senderType === "VISITOR");
+    const supportPolicies = await findRelevantSupportPolicies({
+      workspaceId: conversation.workspaceId,
+      text: `${conversation.subject}\n${latestCustomerMessage?.body ?? ""}`,
+    });
 
     const draft = buildAutoReplyDraft({
       subject: conversation.subject,
       customerName: conversation.customerName,
       recentMessages: messages,
       cannedResponses: Array.isArray(body?.cannedResponses) ? body.cannedResponses : [],
+      supportPolicies,
     });
 
     return NextResponse.json({ draft });

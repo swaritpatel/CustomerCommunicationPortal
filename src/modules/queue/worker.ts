@@ -52,25 +52,46 @@ async function processEmailSend(job: EmailSendJob) {
   });
 
   if (job.purpose === "AUTO_ACK") {
-    await db.emailMessageReference.create({
-      data: {
-        workspaceId: job.workspaceId,
-        conversationId: job.conversationId,
-        messageId: outbound.messageId,
-        inReplyTo: job.inReplyTo,
-        source: "OUTBOUND",
-      },
-    });
+    const now = new Date();
+    await db.$transaction([
+      db.emailMessageReference.create({
+        data: {
+          workspaceId: job.workspaceId,
+          conversationId: job.conversationId,
+          messageId: outbound.messageId,
+          inReplyTo: job.inReplyTo,
+          source: "OUTBOUND",
+        },
+      }),
+      db.chatMessage.create({
+        data: {
+          workspaceId: job.workspaceId,
+          conversationId: job.conversationId,
+          senderType: "SYSTEM",
+          body: job.text,
+          readByAgentAt: new Date(job.webhookOccurredAt),
+        },
+      }),
+      ...(job.autoResolveAfterSend
+        ? [
+            db.conversation.update({
+              where: { id: job.conversationId },
+              data: {
+                status: "RESOLVED",
+                updatedAt: now,
+              },
+            }),
+          ]
+        : []),
+    ]);
 
-    await db.chatMessage.create({
-      data: {
+    if (job.autoResolveAfterSend) {
+      chatLog("info", "email_auto_ack_policy_resolved", {
         workspaceId: job.workspaceId,
         conversationId: job.conversationId,
-        senderType: "SYSTEM",
-        body: job.text,
-        readByAgentAt: new Date(job.webhookOccurredAt),
-      },
-    });
+        policyIds: job.autoResolvePolicyIds ?? [],
+      });
+    }
   } else {
     await db.emailMessageReference.create({
       data: {

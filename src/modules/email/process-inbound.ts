@@ -6,6 +6,7 @@ import { generateEmailAcknowledgement } from "@/modules/email/ai-draft";
 import { normalizeInboundEmail, resolveWorkspaceSlugFromRecipient } from "@/modules/email/inbound";
 import { sendWorkspaceSupportEmail } from "@/modules/email/send";
 import { dispatchEmailWebhookEvent } from "@/modules/email/webhooks";
+import { findRelevantSupportPolicies } from "@/modules/policies/support-policies";
 import { enqueueBackgroundJob } from "@/modules/queue/enqueue";
 import { broadcastConversationEvent } from "@/modules/realtime/broadcast";
 
@@ -45,8 +46,13 @@ async function sendAcknowledgement(input: {
     customerName: input.customerName,
     subject: input.subject,
     customerMessage: input.customerMessage,
+    policies: await findRelevantSupportPolicies({
+      workspaceId: input.workspaceId,
+      text: `${input.subject}\n${input.customerMessage}`,
+    }),
   });
   const text = aiAcknowledgement?.text ?? fallbackText;
+  const shouldAutoResolve = Boolean(aiAcknowledgement?.shouldResolve);
   const references = [input.inReplyTo];
   const acknowledgementId = createHash("sha256").update(input.inReplyTo).digest("hex").slice(0, 16);
 
@@ -56,6 +62,8 @@ async function sendAcknowledgement(input: {
     customerEmail: input.customerEmail,
     aiUsed: Boolean(aiAcknowledgement),
     aiModel: aiAcknowledgement?.model,
+    autoResolveAfterSend: shouldAutoResolve,
+    policyIds: aiAcknowledgement?.policyIds ?? [],
     textLength: text.length,
   });
 
@@ -78,6 +86,8 @@ async function sendAcknowledgement(input: {
     text,
     inReplyTo: input.inReplyTo,
     references,
+    autoResolveAfterSend: shouldAutoResolve,
+    autoResolvePolicyIds: aiAcknowledgement?.policyIds ?? [],
     webhookOccurredAt: now.toISOString(),
   }, {
     jobId: `email-auto-ack-${input.conversationId}-${acknowledgementId}`,
@@ -121,25 +131,45 @@ async function sendAcknowledgement(input: {
       references,
     });
 
-    await db.emailMessageReference.create({
-      data: {
-        workspaceId: input.workspaceId,
-        conversationId: input.conversationId,
-        messageId: outbound.messageId,
-        inReplyTo: input.inReplyTo,
-        source: "OUTBOUND",
-      },
-    });
+    await db.$transaction([
+      db.emailMessageReference.create({
+        data: {
+          workspaceId: input.workspaceId,
+          conversationId: input.conversationId,
+          messageId: outbound.messageId,
+          inReplyTo: input.inReplyTo,
+          source: "OUTBOUND",
+        },
+      }),
+      db.chatMessage.create({
+        data: {
+          workspaceId: input.workspaceId,
+          conversationId: input.conversationId,
+          senderType: "SYSTEM",
+          body: text,
+          readByAgentAt: now,
+        },
+      }),
+      ...(shouldAutoResolve
+        ? [
+            db.conversation.update({
+              where: { id: input.conversationId },
+              data: {
+                status: "RESOLVED",
+                updatedAt: now,
+              },
+            }),
+          ]
+        : []),
+    ]);
 
-    await db.chatMessage.create({
-      data: {
+    if (shouldAutoResolve) {
+      chatLog("info", "email_auto_ack_policy_resolved_direct", {
         workspaceId: input.workspaceId,
         conversationId: input.conversationId,
-        senderType: "SYSTEM",
-        body: text,
-        readByAgentAt: now,
-      },
-    });
+        policyIds: aiAcknowledgement?.policyIds ?? [],
+      });
+    }
 
     await dispatchEmailWebhookEvent({
       type: "email.reply.sent",

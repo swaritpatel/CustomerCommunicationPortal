@@ -8,6 +8,7 @@ const navigation = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/chat", label: "Live Chat" },
   { href: "/inbox", label: "Unified Inbox" },
+  { href: "/policies", label: "Policies" },
   { href: "/knowledge-base", label: "Knowledge Base" },
   { href: "/team", label: "Team" },
   { href: "/team#invites", label: "Invites" },
