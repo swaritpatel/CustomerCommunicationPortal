@@ -27,25 +27,13 @@ export async function sendSupportEmail(input: {
     throw new Error("SMTP is not configured");
   }
 
-  const transporter = nodemailer.createTransport({
-    host: serverEnv.SMTP_HOST,
-    port: serverEnv.SMTP_PORT,
-    secure: Boolean(serverEnv.SMTP_SECURE),
-    connectionTimeout: 30_000,
-    greetingTimeout: 30_000,
-    socketTimeout: 45_000,
-    auth: {
-      user: serverEnv.SMTP_USER,
-      pass: serverEnv.SMTP_PASS,
-    },
-  });
-
   const domain =
     serverEnv.SMTP_FROM_EMAIL?.split("@")[1] ||
     serverEnv.INBOUND_EMAIL_DOMAIN ||
     "relaydesk.local";
   const messageId = `<${randomUUID()}@${domain}>`;
   const startedAt = Date.now();
+  const attempts = getSmtpAttempts();
 
   chatLog("info", "smtp_send_started", {
     to: input.to,
@@ -53,12 +41,41 @@ export async function sendSupportEmail(input: {
     messageId,
     inReplyTo: input.inReplyTo,
     referencesCount: input.references?.length ?? 0,
-    host: serverEnv.SMTP_HOST,
-    port: serverEnv.SMTP_PORT,
-    secure: Boolean(serverEnv.SMTP_SECURE),
+    attempts: attempts.map((attempt) => ({
+      host: attempt.host,
+      port: attempt.port,
+      secure: attempt.secure,
+    })),
   });
 
-  try {
+  let lastError: unknown = null;
+
+  for (const [index, attempt] of attempts.entries()) {
+    const attemptStartedAt = Date.now();
+    const transporter = nodemailer.createTransport({
+      host: attempt.host,
+      port: attempt.port,
+      secure: attempt.secure,
+      connectionTimeout: 30_000,
+      greetingTimeout: 30_000,
+      socketTimeout: 45_000,
+      auth: {
+        user: serverEnv.SMTP_USER,
+        pass: serverEnv.SMTP_PASS,
+      },
+    });
+
+    chatLog("info", "smtp_send_attempt_started", {
+      to: input.to,
+      subject: input.subject,
+      messageId,
+      host: attempt.host,
+      port: attempt.port,
+      secure: attempt.secure,
+      attempt: index + 1,
+      attempts: attempts.length,
+    });
+
     const result = await transporter.sendMail({
       from: serverEnv.SMTP_FROM_NAME
         ? `\"${serverEnv.SMTP_FROM_NAME}\" <${serverEnv.SMTP_FROM_EMAIL}>`
@@ -69,29 +86,87 @@ export async function sendSupportEmail(input: {
       messageId,
       inReplyTo: input.inReplyTo || undefined,
       references: input.references && input.references.length > 0 ? input.references : undefined,
+    }).catch((error: unknown) => {
+      lastError = error;
+      chatLog("warn", "smtp_send_attempt_failed", {
+        to: input.to,
+        subject: input.subject,
+        messageId,
+        host: attempt.host,
+        port: attempt.port,
+        secure: attempt.secure,
+        attempt: index + 1,
+        attempts: attempts.length,
+        durationMs: Date.now() - attemptStartedAt,
+        error: getErrorDetails(error),
+      });
+
+      if (index < attempts.length - 1 && isConnectionTimeout(error)) {
+        return null;
+      }
+
+      throw error;
     });
+
+    if (!result) {
+      continue;
+    }
 
     chatLog("info", "smtp_send_completed", {
       to: input.to,
       subject: input.subject,
       messageId,
+      host: attempt.host,
+      port: attempt.port,
+      secure: attempt.secure,
       response: result.response,
       accepted: result.accepted,
       rejected: result.rejected,
       durationMs: Date.now() - startedAt,
     });
-  } catch (error) {
-    chatLog("error", "smtp_send_failed", {
-      to: input.to,
-      subject: input.subject,
-      messageId,
-      durationMs: Date.now() - startedAt,
-      error: getErrorDetails(error),
-    });
-    throw error;
+
+    return {
+      messageId: messageId.replace(/^<|>$/g, ""),
+    };
   }
 
-  return {
-    messageId: messageId.replace(/^<|>$/g, ""),
+  chatLog("error", "smtp_send_failed", {
+    to: input.to,
+    subject: input.subject,
+    messageId,
+    durationMs: Date.now() - startedAt,
+    error: getErrorDetails(lastError),
+  });
+  throw lastError instanceof Error ? lastError : new Error("SMTP send failed");
+}
+
+function getSmtpAttempts() {
+  const primary = {
+    host: serverEnv.SMTP_HOST!,
+    port: serverEnv.SMTP_PORT!,
+    secure: Boolean(serverEnv.SMTP_SECURE),
   };
+  const attempts = [primary];
+  const host = primary.host.toLowerCase();
+
+  if (host.includes("brevo.com")) {
+    for (const attempt of [
+      { host: primary.host, port: 2525, secure: false },
+      { host: primary.host, port: 465, secure: true },
+    ]) {
+      if (!attempts.some((entry) => entry.port === attempt.port && entry.secure === attempt.secure)) {
+        attempts.push(attempt);
+      }
+    }
+  }
+
+  return attempts;
+}
+
+function isConnectionTimeout(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return /timeout|etimedout|econnrefused|econnreset/i.test(error.message);
 }

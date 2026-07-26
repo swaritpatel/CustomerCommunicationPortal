@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { db, type DbTransactionClient } from "@/lib/db";
 import { chatLog } from "@/modules/chat/log";
 import { normalizeInboundEmail, resolveWorkspaceSlugFromRecipient } from "@/modules/email/inbound";
-import { sendSupportEmail } from "@/modules/email/smtp";
+import { sendWorkspaceSupportEmail } from "@/modules/email/send";
 import { dispatchEmailWebhookEvent } from "@/modules/email/webhooks";
 import { enqueueBackgroundJob } from "@/modules/queue/enqueue";
 import { broadcastConversationEvent } from "@/modules/realtime/broadcast";
@@ -95,7 +95,8 @@ async function sendAcknowledgement(input: {
       return;
     }
 
-    const outbound = await sendSupportEmail({
+    const outbound = await sendWorkspaceSupportEmail({
+      workspaceId: input.workspaceId,
       to: input.customerEmail,
       subject,
       text,

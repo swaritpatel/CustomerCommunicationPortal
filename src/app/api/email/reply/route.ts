@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { db, type DbTransactionClient } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
-import { sendSupportEmail } from "@/modules/email/smtp";
+import { sendWorkspaceSupportEmail } from "@/modules/email/send";
 import { dispatchEmailWebhookEvent } from "@/modules/email/webhooks";
 import { enqueueBackgroundJob } from "@/modules/queue/enqueue";
 import { withApiLogging } from "@/modules/observability/api";
@@ -116,7 +116,8 @@ async function POSTHandler(request: Request) {
       return NextResponse.json({ ok: true, queued: true });
     }
 
-    const outbound = await sendSupportEmail({
+    const outbound = await sendWorkspaceSupportEmail({
+      workspaceId: conversation.workspaceId,
       to: conversation.customerEmail,
       subject,
       text,

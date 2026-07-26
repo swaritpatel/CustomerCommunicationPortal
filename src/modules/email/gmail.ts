@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { db } from "@/lib/db";
 import { serverEnv } from "@/lib/env";
 import { chatLog } from "@/modules/chat/log";
@@ -37,6 +39,11 @@ type GmailMessage = {
   payload?: GmailMessagePart & {
     headers?: GmailHeader[];
   };
+};
+
+type GmailSendResponse = {
+  id: string;
+  threadId?: string;
 };
 
 export function isGmailConfigured() {
@@ -194,6 +201,144 @@ async function gmailFetch<T>(accessToken: string, path: string) {
   }
 
   return (await response.json()) as T;
+}
+
+function sanitizeHeader(value: string) {
+  return value.replace(/[\r\n]+/g, " ").trim();
+}
+
+function formatMessageId(value: string | null | undefined) {
+  const normalized = value?.replace(/^<|>$/g, "").trim();
+  return normalized ? `<${normalized}>` : undefined;
+}
+
+function encodeRawEmail(input: {
+  fromEmail: string;
+  fromName?: string | null;
+  to: string;
+  subject: string;
+  text: string;
+  messageId: string;
+  inReplyTo?: string | null;
+  references?: string[];
+}) {
+  const from = input.fromName
+    ? `"${sanitizeHeader(input.fromName).replace(/"/g, "'")}" <${input.fromEmail}>`
+    : input.fromEmail;
+  const references = input.references
+    ?.map((reference) => formatMessageId(reference))
+    .filter((reference): reference is string => Boolean(reference));
+  const headers = [
+    `From: ${from}`,
+    `To: ${sanitizeHeader(input.to)}`,
+    `Subject: ${sanitizeHeader(input.subject)}`,
+    `Message-ID: ${formatMessageId(input.messageId)}`,
+    "MIME-Version: 1.0",
+    "Content-Type: text/plain; charset=UTF-8",
+    "Content-Transfer-Encoding: 8bit",
+    input.inReplyTo ? `In-Reply-To: ${formatMessageId(input.inReplyTo)}` : null,
+    references && references.length > 0 ? `References: ${references.join(" ")}` : null,
+  ].filter((header): header is string => Boolean(header));
+
+  return Buffer.from(`${headers.join("\r\n")}\r\n\r\n${input.text}`, "utf8").toString("base64url");
+}
+
+export async function sendGmailSupportEmail(input: {
+  workspaceId: string;
+  to: string;
+  subject: string;
+  text: string;
+  inReplyTo?: string | null;
+  references?: string[];
+}) {
+  if (!isGmailConfigured()) {
+    throw new Error("Gmail OAuth is not configured");
+  }
+
+  const integration = await db.gmailIntegration.findFirst({
+    where: {
+      workspaceId: input.workspaceId,
+      ...(serverEnv.GMAIL_SUPPORT_EMAIL ? { email: serverEnv.GMAIL_SUPPORT_EMAIL } : {}),
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  if (!integration) {
+    throw new Error("Gmail is not connected");
+  }
+
+  const domain = integration.email.split("@")[1] || "gmail.local";
+  const messageId = `${randomUUID()}@${domain}`;
+  const startedAt = Date.now();
+  const accessToken = await getIntegrationAccessToken(integration.id);
+
+  chatLog("info", "gmail_send_started", {
+    workspaceId: input.workspaceId,
+    integrationId: integration.id,
+    from: integration.email,
+    to: input.to,
+    subject: input.subject,
+    messageId,
+    inReplyTo: input.inReplyTo,
+    referencesCount: input.references?.length ?? 0,
+  });
+
+  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      raw: encodeRawEmail({
+        fromEmail: integration.email,
+        fromName: serverEnv.SMTP_FROM_NAME || "Cosmofeed Support",
+        to: input.to,
+        subject: input.subject,
+        text: input.text,
+        messageId,
+        inReplyTo: input.inReplyTo,
+        references: input.references,
+      }),
+    }),
+  });
+
+  const payload = (await response.json().catch(() => null)) as GmailSendResponse | { error?: { message?: string } } | null;
+
+  if (!response.ok) {
+    const message =
+      payload && "error" in payload && payload.error?.message
+        ? payload.error.message
+        : `Gmail send failed (${response.status})`;
+    chatLog("error", "gmail_send_failed", {
+      workspaceId: input.workspaceId,
+      integrationId: integration.id,
+      from: integration.email,
+      to: input.to,
+      subject: input.subject,
+      messageId,
+      durationMs: Date.now() - startedAt,
+      status: response.status,
+      error: message,
+    });
+    throw new Error(message);
+  }
+
+  chatLog("info", "gmail_send_completed", {
+    workspaceId: input.workspaceId,
+    integrationId: integration.id,
+    from: integration.email,
+    to: input.to,
+    subject: input.subject,
+    messageId,
+    gmailMessageId: payload && "id" in payload ? payload.id : undefined,
+    gmailThreadId: payload && "threadId" in payload ? payload.threadId : undefined,
+    durationMs: Date.now() - startedAt,
+  });
+
+  return {
+    messageId,
+  };
 }
 
 export async function syncGmailInbox(input: {

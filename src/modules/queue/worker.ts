@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { runAutoReplyWorkflow } from "@/modules/chat/auto-reply";
 import { chatLog } from "@/modules/chat/log";
 import { syncAllGmailInboxes } from "@/modules/email/gmail";
-import { sendSupportEmail } from "@/modules/email/smtp";
+import { sendWorkspaceSupportEmail } from "@/modules/email/send";
 import { deliverEmailWebhookEvent } from "@/modules/email/webhooks";
 import { getErrorDetails } from "@/modules/observability/log";
 import { getQueueConnection } from "@/modules/queue/connection";
@@ -42,7 +42,8 @@ async function processEmailSend(job: EmailSendJob) {
     }
   }
 
-  const outbound = await sendSupportEmail({
+  const outbound = await sendWorkspaceSupportEmail({
+    workspaceId: job.workspaceId,
     to: job.customerEmail,
     subject: job.subject,
     text: job.text,
