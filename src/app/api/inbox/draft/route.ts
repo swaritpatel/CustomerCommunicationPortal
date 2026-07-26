@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
 import { buildAutoReplyDraft } from "@/modules/email/ai-draft";
-import { buildKnowledgeSearchOr, scoreKnowledgeArticle, tokenizeKnowledgeQuery } from "@/modules/kb/search";
+import { findSuggestedKnowledgeArticles } from "@/modules/kb/suggestions";
 import { withApiLogging } from "@/modules/observability/api";
 import { findRelevantSupportPolicies } from "@/modules/policies/support-policies";
 
@@ -12,14 +12,6 @@ type DraftMessageItem = {
   senderType: "VISITOR" | "AGENT" | "SYSTEM";
   body: string;
 };
-
-function cleanSearchText(value: string) {
-  return value
-    .replace(/[^a-zA-Z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 160);
-}
 
 async function POSTHandler(request: Request) {
   try {
@@ -84,26 +76,12 @@ async function POSTHandler(request: Request) {
       workspaceId: conversation.workspaceId,
       text: `${conversation.subject}\n${latestCustomerMessage?.body ?? ""}`,
     });
-    const articleQuery = cleanSearchText(`${conversation.subject} ${latestCustomerMessage?.body ?? ""}`);
-    const articleTokens = tokenizeKnowledgeQuery(articleQuery);
-    const suggestedArticles =
-      articleTokens.length > 0
-        ? await db.knowledgeBaseArticle.findMany({
-            where: {
-              workspaceId: conversation.workspaceId,
-              status: "PUBLISHED",
-              OR: buildKnowledgeSearchOr(articleTokens),
-            },
-            orderBy: { updatedAt: "desc" },
-            take: 12,
-            select: {
-              title: true,
-              slug: true,
-              excerpt: true,
-              contentHtml: true,
-            },
-          })
-        : [];
+    const suggestedArticles = await findSuggestedKnowledgeArticles({
+      workspaceId: conversation.workspaceId,
+      workspaceSlug: conversation.workspace.slug,
+      text: `${conversation.subject}\n${latestCustomerMessage?.body ?? ""}`,
+      take: 3,
+    });
 
     const draft = buildAutoReplyDraft({
       subject: conversation.subject,
@@ -111,19 +89,7 @@ async function POSTHandler(request: Request) {
       recentMessages: messages,
       cannedResponses: Array.isArray(body?.cannedResponses) ? body.cannedResponses : [],
       supportPolicies,
-      suggestedArticles: suggestedArticles
-        .map((article) => ({
-          ...article,
-          score: scoreKnowledgeArticle(article, articleTokens),
-        }))
-        .filter((article) => article.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 3)
-        .map((article) => ({
-          title: article.title,
-          excerpt: article.excerpt,
-          href: `/help/${conversation.workspace.slug}?article=${article.slug}`,
-        })),
+      suggestedArticles,
     });
 
     return NextResponse.json({ draft });

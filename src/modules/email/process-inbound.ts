@@ -6,6 +6,7 @@ import { generateEmailAcknowledgement } from "@/modules/email/ai-draft";
 import { normalizeInboundEmail, resolveWorkspaceSlugFromRecipient } from "@/modules/email/inbound";
 import { sendWorkspaceSupportEmail } from "@/modules/email/send";
 import { dispatchEmailWebhookEvent } from "@/modules/email/webhooks";
+import { findSuggestedKnowledgeArticles } from "@/modules/kb/suggestions";
 import { findRelevantSupportPolicies } from "@/modules/policies/support-policies";
 import { enqueueBackgroundJob } from "@/modules/queue/enqueue";
 import { broadcastConversationEvent } from "@/modules/realtime/broadcast";
@@ -13,15 +14,29 @@ import { generateUniqueTicketNumber } from "@/modules/tickets/ticket-number";
 
 function withTicketReference(text: string, ticketNumber: string) {
   if (text.includes(ticketNumber)) {
-    return text;
+    return normalizeEmailText(text);
   }
 
+  const lines = text.trim().split("\n");
+  const greeting = lines[0] ?? "Hi there,";
+  const body = lines.slice(1).join("\n").trim();
+
   return [
-    text.trim(),
+    greeting,
     "",
     `Ticket number: ${ticketNumber}`,
     "Please keep this ticket number for future reference.",
+    ...(body ? ["", body] : []),
   ].join("\n");
+}
+
+function normalizeEmailText(text: string) {
+  return text
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function buildAcknowledgementText(input: { customerName: string | null; ticketNumber: string }) {
@@ -30,13 +45,13 @@ function buildAcknowledgementText(input: { customerName: string | null; ticketNu
   return [
     `Hi ${greetingName},`,
     "",
+    `Ticket number: ${input.ticketNumber}`,
+    "Please keep this ticket number for future reference.",
+    "",
     "Thank you for contacting Cosmofeed Support.",
     "",
     "We have received your message and our support team is reviewing the details.",
     "We will follow up on this email thread with the next update as soon as possible.",
-    "",
-    `Ticket number: ${input.ticketNumber}`,
-    "Please keep this ticket number for future reference.",
     "",
     "Best,",
     "Cosmofeed Support",
@@ -59,6 +74,18 @@ async function sendAcknowledgement(input: {
     customerName: input.customerName,
     ticketNumber: input.ticketNumber,
   });
+  const workspace = await db.workspace.findUnique({
+    where: { id: input.workspaceId },
+    select: { slug: true },
+  });
+  const suggestedArticles = workspace
+    ? await findSuggestedKnowledgeArticles({
+        workspaceId: input.workspaceId,
+        workspaceSlug: workspace.slug,
+        text: `${input.subject}\n${input.customerMessage}`,
+        take: 1,
+      })
+    : [];
   const aiAcknowledgement = await generateEmailAcknowledgement({
     workspaceId: input.workspaceId,
     conversationId: input.conversationId,
@@ -69,8 +96,20 @@ async function sendAcknowledgement(input: {
       workspaceId: input.workspaceId,
       text: `${input.subject}\n${input.customerMessage}`,
     }),
+    suggestedArticles,
   });
-  const text = aiAcknowledgement?.text ? withTicketReference(aiAcknowledgement.text, input.ticketNumber) : fallbackText;
+  const text = normalizeEmailText(aiAcknowledgement?.text
+    ? withTicketReference(aiAcknowledgement.text, input.ticketNumber)
+    : withTicketReference([
+        fallbackText,
+        ...(suggestedArticles.length > 0
+          ? [
+              "",
+              `This help article may be useful: ${suggestedArticles[0].title}`,
+              suggestedArticles[0].href,
+            ]
+          : []),
+      ].join("\n"), input.ticketNumber));
   const shouldAutoResolve = Boolean(aiAcknowledgement?.shouldResolve);
   const references = [input.inReplyTo];
   const acknowledgementId = createHash("sha256").update(input.inReplyTo).digest("hex").slice(0, 16);
@@ -83,6 +122,7 @@ async function sendAcknowledgement(input: {
     aiModel: aiAcknowledgement?.model,
     autoResolveAfterSend: shouldAutoResolve,
     policyIds: aiAcknowledgement?.policyIds ?? [],
+    articleLinks: suggestedArticles.map((article) => article.href),
     textLength: text.length,
   });
 

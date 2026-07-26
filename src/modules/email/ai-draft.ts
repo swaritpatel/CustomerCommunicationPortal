@@ -4,6 +4,7 @@ import {
   formatPoliciesForPrompt,
   type MatchedSupportPolicy,
 } from "@/modules/policies/support-policies";
+import type { SuggestedKnowledgeArticle } from "@/modules/kb/suggestions";
 
 type DraftInput = {
   subject: string;
@@ -11,7 +12,7 @@ type DraftInput = {
   recentMessages: Array<{ senderType: "VISITOR" | "AGENT" | "SYSTEM"; body: string }>;
   cannedResponses: string[];
   supportPolicies?: MatchedSupportPolicy[];
-  suggestedArticles?: Array<{ title: string; excerpt: string | null; href: string }>;
+  suggestedArticles?: SuggestedKnowledgeArticle[];
 };
 
 type AcknowledgementInput = {
@@ -19,6 +20,7 @@ type AcknowledgementInput = {
   customerName?: string | null;
   customerMessage: string;
   policies?: MatchedSupportPolicy[];
+  suggestedArticles?: SuggestedKnowledgeArticle[];
   conversationId?: string;
   workspaceId?: string;
 };
@@ -150,6 +152,7 @@ export async function generateEmailAcknowledgement(input: AcknowledgementInput) 
               "Sound natural, concise, professional, and human.",
               "Use the customer message context, but do not quote or repeat the message or subject line.",
               "Use workspace support policies as the source of truth when they are relevant.",
+              "If a relevant help article is provided, include exactly one short sentence with its link.",
               "Do not promise refunds, credits, exact timelines, or completed actions.",
               "Do not ask for passwords, OTPs, card details, or sensitive information.",
               "Ask at most one simple follow-up question only if policy requires it.",
@@ -170,6 +173,13 @@ export async function generateEmailAcknowledgement(input: AcknowledgementInput) 
               "",
               "Workspace support policies:",
               formatPoliciesForPrompt(policies),
+              "",
+              "Relevant help articles:",
+              input.suggestedArticles && input.suggestedArticles.length > 0
+                ? input.suggestedArticles
+                    .map((article) => `- ${article.title}: ${article.href}${article.excerpt ? ` (${article.excerpt})` : ""}`)
+                    .join("\n")
+                : "None",
               "",
               "Write the policy-aware email response now.",
             ].join("\n"),

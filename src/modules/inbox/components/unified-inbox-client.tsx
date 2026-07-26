@@ -214,6 +214,7 @@ function customerLabel(conversation: InboxConversation) {
 }
 
 export function UnifiedInboxClient() {
+  const [searchQuery, setSearchQuery] = useState(readInitialParam("q") || "");
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>(readInitialChannelFilter);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(readInitialStatusFilter);
   const [assigneeFilter, setAssigneeFilter] = useState(readInitialAssigneeFilter);
@@ -278,6 +279,10 @@ export function UnifiedInboxClient() {
     if (assigneeFilter !== "ALL") {
       params.set("assignee", assigneeFilter);
     }
+    const trimmedSearch = searchQuery.trim();
+    if (trimmedSearch.length >= 2) {
+      params.set("q", trimmedSearch);
+    }
 
     try {
       const response = await fetch(`/api/inbox/conversations?${params.toString()}`, {
@@ -314,7 +319,7 @@ export function UnifiedInboxClient() {
     } finally {
       setIsLoadingConversations(false);
     }
-  }, [activeId, assigneeFilter, channelFilter, statusFilter]);
+  }, [activeId, assigneeFilter, channelFilter, searchQuery, statusFilter]);
 
   const loadMessages = useCallback(async (conversationId: string) => {
     const response = await fetch(`/api/inbox/messages?conversationId=${encodeURIComponent(conversationId)}`, {
@@ -731,13 +736,23 @@ export function UnifiedInboxClient() {
   };
 
   return (
-    <main className="min-h-screen px-6 py-8 sm:px-8 lg:px-10">
-      <div className="mx-auto grid w-full max-w-7xl gap-6 xl:grid-cols-[320px_1fr_310px]">
-        <aside className="card rounded-[2rem] p-5">
+    <main className="min-h-screen overflow-x-hidden px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto grid w-full max-w-[calc(100vw-2rem)] gap-5 xl:grid-cols-[320px_minmax(0,1fr)] 2xl:max-w-[1760px] 2xl:grid-cols-[320px_minmax(0,1fr)_320px]">
+        <aside className="card min-w-0 rounded-[2rem] p-5">
           <p className="eyebrow">Unified Inbox</p>
           <h1 className="mt-2 text-2xl font-extrabold tracking-[-0.04em]">All conversations</h1>
 
-          <div className="mt-5 rounded-2xl border border-[var(--color-line)] bg-[rgba(255,255,255,0.65)] p-3">
+          <label className="mt-5 grid gap-1 text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-muted)]">
+            Search
+            <input
+              className="input"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Ticket, email, name, subject"
+            />
+          </label>
+
+          <div className="mt-4 rounded-2xl border border-[var(--color-line)] bg-[rgba(255,255,255,0.65)] p-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-muted)]">Gmail</p>
@@ -870,7 +885,7 @@ export function UnifiedInboxClient() {
           </div>
         </aside>
 
-        <section className="card rounded-[2rem] p-5">
+        <section className="card min-w-0 rounded-[2rem] p-5">
           {activeConversation ? (
             <>
               <header className="border-b border-[var(--color-line)] pb-4">
@@ -987,7 +1002,7 @@ export function UnifiedInboxClient() {
           )}
         </section>
 
-        <aside className="space-y-6">
+        <aside className="min-w-0 space-y-6 xl:col-span-2 2xl:col-span-1">
           <article className="card rounded-[2rem] p-5">
             <div className="flex items-start justify-between gap-3">
               <div>

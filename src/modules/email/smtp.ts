@@ -20,6 +20,7 @@ export async function sendSupportEmail(input: {
   to: string;
   subject: string;
   text: string;
+  html?: string;
   inReplyTo?: string | null;
   references?: string[];
 }) {
@@ -83,6 +84,7 @@ export async function sendSupportEmail(input: {
       to: input.to,
       subject: input.subject,
       text: input.text,
+      html: input.html ?? textToHtml(input.text),
       messageId,
       inReplyTo: input.inReplyTo || undefined,
       references: input.references && input.references.length > 0 ? input.references : undefined,
@@ -169,4 +171,27 @@ function isConnectionTimeout(error: unknown) {
   }
 
   return /timeout|etimedout|econnrefused|econnreset/i.test(error.message);
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function textToHtml(text: string) {
+  const paragraphs = text
+    .replace(/\r\n/g, "\n")
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+
+  return [
+    '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.55;color:#202124;">',
+    ...paragraphs.map((paragraph) => `<p style="margin:0 0 14px;">${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`),
+    "</div>",
+  ].join("");
 }

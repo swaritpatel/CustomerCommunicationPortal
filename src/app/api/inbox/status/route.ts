@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
+import { createKnowledgeArticleFromConversation } from "@/modules/kb/from-conversation";
 import { withApiLogging } from "@/modules/observability/api";
 
 const allowedStatuses = ["OPEN", "SNOOZED", "RESOLVED"] as const;
@@ -71,6 +72,36 @@ async function POSTHandler(request: Request) {
         updatedAt: new Date(),
       },
     });
+
+    if (status === "RESOLVED") {
+      const articleResult = await createKnowledgeArticleFromConversation({
+        workspaceId: conversation.workspaceId,
+        conversationId: conversation.id,
+        authorUserId: claims.sub,
+        status: "DRAFT",
+      }).catch((error) => {
+        chatLog("warn", "kb_article_draft_on_resolve_failed", {
+          workspaceId: conversation.workspaceId,
+          conversationId: conversation.id,
+          error: error instanceof Error ? error.message : "unknown_error",
+        });
+        return null;
+      });
+
+      if (articleResult?.ok) {
+        chatLog("info", "kb_article_draft_on_resolve_created", {
+          workspaceId: conversation.workspaceId,
+          conversationId: conversation.id,
+          articleId: articleResult.article.id,
+        });
+      } else if (articleResult && !articleResult.ok) {
+        chatLog("warn", "kb_article_draft_on_resolve_skipped", {
+          workspaceId: conversation.workspaceId,
+          conversationId: conversation.id,
+          reason: articleResult.error,
+        });
+      }
+    }
 
     return NextResponse.json({ ok: true, status });
   } catch (error) {
