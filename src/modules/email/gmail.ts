@@ -243,7 +243,7 @@ export async function ensureGmailWatch(input: {
     body: JSON.stringify({
       topicName: serverEnv.GMAIL_PUBSUB_TOPIC,
       labelIds: ["INBOX"],
-      labelFilterBehavior: "INCLUDE",
+      labelFilterBehavior: "include",
     }),
   });
 

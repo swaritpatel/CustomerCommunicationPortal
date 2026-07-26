@@ -18,6 +18,8 @@ The product is built as a multi-workspace support system. Each workspace gets a 
 | Queue worker service | `https://cosmofeed-help-ccp-worker.onrender.com` |
 | Queue worker health | `https://cosmofeed-help-ccp-worker.onrender.com/health` |
 | Inbound email webhook | `https://customer-communication-portal.vercel.app/api/email/inbound` |
+| Gmail Pub/Sub push webhook | `https://customer-communication-portal.vercel.app/api/email/gmail/push?secret=<configured-secret>` |
+| GitHub repository | `https://github.com/swaritpatel/CustomerCommunicationPortal` |
 
 Note: `/widget/chat?workspace=pinelabs` is supported in the latest code as a compatibility route, but older deployments may only have `/widget/embed?workspace=pinelabs`.
 
@@ -31,8 +33,8 @@ Note: `/widget/chat?workspace=pinelabs` is supported in the latest code as a com
 - Visitor chat history persistence through local storage and database-backed conversations.
 - Realtime chat updates through Socket.IO plus SSE/polling fallbacks.
 - Typing states, online/offline presence, and read receipts.
-- Ticket numbers generated for chat and email conversations.
-- Email channel with Gmail OAuth sync, inbound parsing, SMTP replies, and Message-ID based threading.
+- Ticket numbers generated after a real chat/email issue is captured.
+- Email channel with Gmail OAuth, Gmail Pub/Sub push notifications, polling fallback, inbound parsing, SMTP replies, and Message-ID based threading.
 - AI auto-acknowledgement for inbound email.
 - AI chat auto-reply with policy-aware responses.
 - AI provider fallback chain: OpenAI-compatible primary, Gemini, then Groq keys.
@@ -49,7 +51,7 @@ Note: `/widget/chat?workspace=pinelabs` is supported in the latest code as a com
 ## What Is Skipped Or Simplified
 
 - Production-grade custom-domain SSL provisioning is modeled but not fully automated.
-- Gmail supports Pub/Sub push notifications when configured, with polling/manual sync kept as a fallback.
+- Gmail Pub/Sub push uses a shared webhook secret; Pub/Sub OIDC/JWT verification can be added as a harder production perimeter.
 - Email sending uses SMTP provider credentials rather than a dedicated transactional email SDK.
 - Advanced permissions are limited to `ADMIN` and `AGENT`.
 - AI safety is prompt/policy based; there is no full moderation pipeline.
@@ -70,7 +72,7 @@ Note: `/widget/chat?workspace=pinelabs` is supported in the latest code as a com
 | Background jobs | BullMQ | Email sends, auto-acks, queueable background tasks |
 | Worker runtime | `tsx` Node worker | Long-lived queue worker on Render |
 | Auth crypto | `jose`, `bcryptjs` | JWT/session token signing and password hashing |
-| Email sync | Gmail OAuth + Gmail API + optional Pub/Sub push | Pull support inbox messages into the unified inbox |
+| Email sync | Gmail OAuth + Gmail API + Pub/Sub push + polling fallback | Pull support inbox messages into the unified inbox |
 | Email send | Nodemailer + Brevo SMTP | Send support replies and acknowledgements |
 | AI primary | OpenAI-compatible Chat Completions | Drafts, summaries, acknowledgements, chat replies |
 | AI fallback 1 | Gemini API | Backup model if OpenAI-compatible provider fails |
@@ -90,7 +92,7 @@ Note: `/widget/chat?workspace=pinelabs` is supported in the latest code as a com
 | Upstash Redis | Redis adapter for Socket.IO and BullMQ queue backing |
 | Google Cloud OAuth | Connects `support.cosmofeed@gmail.com` through Gmail OAuth |
 | Gmail API | Syncs inbound support email messages and thread metadata |
-| Google Pub/Sub | Optional Gmail push notification transport that triggers near-real-time sync |
+| Google Pub/Sub | Gmail push notification transport that triggers near-real-time sync |
 | Brevo SMTP | Sends outbound support emails and acknowledgements |
 | OpenAI API | Primary AI provider |
 | Gemini API | First AI fallback provider |
@@ -104,7 +106,7 @@ The system is split into three runtime surfaces:
 
 1. **Next.js product application** - serves the dashboard, public pages, widget iframe, and HTTP API routes.
 2. **Realtime gateway** - a long-running Socket.IO service that broadcasts invalidation events to connected agents and visitors.
-3. **Queue worker** - a long-running worker for email sends, auto-acknowledgements, and background jobs.
+3. **Queue worker** - a long-running worker for email sends, auto-acknowledgements, Gmail watch renewal, polling fallback, and background jobs.
 
 PostgreSQL is the durable source of truth. Redis is used only for realtime/queue coordination, not as the primary data store.
 
@@ -116,13 +118,18 @@ flowchart LR
 
   Widget --> NextAPI[Next.js API routes]
   Dashboard --> NextAPI
-  Gmail --> GmailSync[Gmail OAuth sync]
-  GmailSync --> NextAPI
+  Gmail --> PubSub[Google Pub/Sub notification]
+  PubSub --> GmailPush[Next.js Gmail push webhook]
+  GmailPush --> NextAPI
+  NextAPI --> GmailAPI[Gmail API content fetch]
+  GmailAPI --> Gmail
 
   NextAPI --> DB[(Neon PostgreSQL)]
   NextAPI --> Queue[BullMQ queue]
   Queue --> Worker[Render queue worker]
   Worker --> SMTP[Brevo SMTP]
+  Worker --> WatchRenew[Gmail watch renewal + polling fallback]
+  WatchRenew --> GmailAPI
   Worker --> DB
 
   NextAPI --> AI[AI provider chain]
@@ -169,6 +176,7 @@ flowchart TB
 
   subgraph ExternalProviders
     Gmail[Gmail API]
+    PubSub[Google Pub/Sub]
     SMTP[Brevo SMTP]
     AIProviders[OpenAI / Gemini / Groq]
   end
@@ -176,7 +184,9 @@ flowchart TB
   WebsiteVisitor --> Widget
   Widget --> API
   EmailCustomer --> Gmail
-  Gmail --> API
+  Gmail --> PubSub
+  PubSub --> API
+  API --> Gmail
   Dashboard --> API
   HelpCenter --> API
   API --> Postgres
@@ -184,6 +194,7 @@ flowchart TB
   API --> RealtimeGateway
   API --> QueueWorker
   QueueWorker --> SMTP
+  QueueWorker --> Gmail
   QueueWorker --> Postgres
   API --> AIProviders
   RealtimeGateway --> Redis
@@ -204,7 +215,10 @@ flowchart LR
   RenderWorker --> Upstash
   RenderWorker --> Neon
   RenderWorker --> Brevo[Brevo SMTP]
-  Vercel --> Google[Google OAuth/Gmail]
+  Vercel --> Google[Google OAuth/Gmail API]
+  Google --> PubSub[Google Pub/Sub]
+  PubSub --> Vercel
+  RenderWorker --> Google
   Vercel --> AI[OpenAI/Gemini/Groq]
 ```
 
@@ -212,9 +226,9 @@ flowchart LR
 
 | Runtime | Responsibilities | Why It Exists |
 | --- | --- | --- |
-| Next.js app on Vercel | UI rendering, auth, REST APIs, widget iframe, public help center, Gmail sync routes | Best fit for request/response product and API surface |
+| Next.js app on Vercel | UI rendering, auth, REST APIs, widget iframe, public help center, Gmail OAuth, Gmail sync routes, Pub/Sub push webhook | Best fit for request/response product and API surface |
 | Realtime service on Render | Socket.IO rooms, websocket/polling transport, `/emit` bridge, health endpoint | Vercel serverless functions are not ideal for long-lived websockets |
-| Queue worker on Render | BullMQ processing, auto-ack email send, retries, health endpoint | Background work should not block user/API requests |
+| Queue worker on Render | BullMQ processing, auto-ack email send, retries, Gmail watch renewal, polling fallback, health endpoint | Background work should not block user/API requests |
 | PostgreSQL | Users, workspaces, messages, tickets, policies, KB, sessions, email refs | Relational data and tenant boundaries need strong consistency |
 | Redis | Queue backend and Socket.IO adapter | Fanout and worker coordination |
 
@@ -267,7 +281,7 @@ flowchart TB
 
 - `src/modules/auth/*` - signup, login, password hashing, session cookies, auth guards.
 - `src/modules/chat/*` - visitor JWTs, widget chat, typing, auto-reply, AI policy logic, logs.
-- `src/modules/email/*` - Gmail sync, inbound normalization, threading, SMTP send, AI acknowledgements.
+- `src/modules/email/*` - Gmail OAuth, Pub/Sub watch registration, sync, inbound normalization, threading, SMTP send, AI acknowledgements.
 - `src/modules/inbox/*` - AI summaries and shared inbox behavior.
 - `src/modules/kb/*` - help center search, article suggestions, article generation from resolved conversations.
 - `src/modules/policies/*` - policy matching for AI replies and auto-resolve decisions.
@@ -286,11 +300,11 @@ flowchart TB
 | Chat widget | `chat/components/widget-chat-client.tsx`, `api/chat/*` | Visitor bootstrap, local persistence, send/read messages, typing, resolution feedback |
 | Agent chat | `chat/components/agent-chat-client.tsx`, `api/chat/conversations` | Agent view of chat conversations and realtime updates |
 | Unified inbox | `inbox/components/unified-inbox-client.tsx`, `api/inbox/*` | Shared operator queue for email and chat |
-| Email channel | `email/process-inbound.ts`, `email/gmail.ts`, `email/send.ts`, `email/smtp.ts` | Gmail sync, inbound normalization, threading, SMTP replies |
+| Email channel | `email/process-inbound.ts`, `email/gmail.ts`, `email/send.ts`, `email/smtp.ts`, `api/email/gmail/push` | Gmail OAuth, Pub/Sub watch registration, push/poll sync, inbound normalization, threading, SMTP replies |
 | AI reply engine | `chat/agent-reply.ts`, `email/ai-draft.ts`, `inbox/ai-summary.ts` | Provider calls, JSON parsing, fallback model chain |
 | Policy engine | `policies/support-policies.ts`, `chat/agent-policy.ts` | Match support policies and control escalation/auto-resolve |
 | KB | `kb/search.ts`, `kb/suggestions.ts`, `kb/from-conversation.ts` | Public search, suggested articles, article generation |
-| Queue | `queue/enqueue.ts`, `queue/worker.ts`, `scripts/queue-worker.ts` | Background jobs and health endpoint |
+| Queue | `queue/enqueue.ts`, `queue/worker.ts`, `scripts/queue-worker.ts` | Background jobs, Gmail polling fallback, Gmail watch renewal, health endpoint |
 | Realtime | `realtime/broadcast.ts`, `realtime/client.ts`, `scripts/realtime-server.mjs` | Room events and browser invalidation |
 | Tickets | `tickets/ticket-number.ts` | Workspace-unique ticket numbers |
 
@@ -343,22 +357,32 @@ sequenceDiagram
   InboxAPI-->>Agent: success
 ```
 
-### LLD: Gmail Sync And Threading
+### LLD: Gmail Push/Poll Sync And Threading
 
 ```mermaid
 flowchart TD
-  Sync[Sync Gmail messages] --> List[Gmail messages.list query]
+  CustomerEmail[Customer emails support inbox] --> Gmail[Gmail inbox]
+  Gmail --> PubSub[Pub/Sub notification]
+  PubSub --> PushWebhook[/api/email/gmail/push]
+  OAuthConnect[Gmail OAuth connect] --> Watch[Gmail users.watch]
+  WorkerRenew[Queue worker watch renewal] --> Watch
+  Watch --> PubSub
+  WorkerPoll[Queue worker polling fallback] --> Sync[Sync Gmail messages]
+  PushWebhook --> Sync
+  Sync --> List[Gmail messages.list query]
   List --> Fetch[Gmail messages.get full payload]
   Fetch --> Normalize[Normalize sender, subject, text/html, headers]
   Normalize --> ExistingRef{Message-ID or references known?}
   ExistingRef -->|yes| ExistingConversation[Append to existing Conversation]
   ExistingRef -->|no| SubjectCustomer[Find by thread/customer fallback]
-  SubjectCustomer --> Create[Create new Conversation + ticket]
+  SubjectCustomer --> Create[Create new email Conversation + ticket]
   ExistingConversation --> Store[Store ChatMessage + EmailMessageReference]
   Create --> Store
   Store --> Ack[Queue acknowledgement if inbound customer mail]
   Ack --> Broadcast[Broadcast inbox update]
 ```
+
+Gmail Pub/Sub notifications are triggers, not message bodies. When a notification arrives, the app decodes the email address/history signal, finds the matching `GmailIntegration`, and runs the same bounded sync/import path used by manual sync and worker polling.
 
 Thread matching priority:
 
@@ -366,6 +390,15 @@ Thread matching priority:
 2. `In-Reply-To` header match.
 3. `References` header match.
 4. New conversation creation with a workspace-unique ticket number.
+
+Duplicate protection is database-backed. `EmailMessageReference` has a workspace + `messageId` unique constraint, so Pub/Sub push and polling can safely race without creating duplicate messages or duplicate conversations for the same email.
+
+Watch lifecycle:
+
+1. Gmail OAuth callback stores/updates the integration.
+2. The app calls `users.watch` when Pub/Sub settings are present.
+3. The queue worker renews watches using `GMAIL_WATCH_RENEW_INTERVAL_MS`.
+4. `GMAIL_SYNC_INTERVAL_MS` keeps polling active as a fallback for missed notifications, expired watches, or local testing.
 
 ### LLD: AI Decision Contract
 
@@ -409,7 +442,8 @@ The event does not include customer message bodies. After receiving an event:
 
 ### LLD: Status And Ticket Rules
 
-- Every chat/email conversation should have a workspace-unique ticket number.
+- Email conversations receive a workspace-unique ticket number when imported.
+- Chat conversations receive a workspace-unique ticket number after the visitor describes a substantive issue.
 - `OPEN` means the team still needs to act or customer said the issue is not resolved.
 - `SNOOZED` means temporarily deferred.
 - `RESOLVED` means closed after agent action, AI policy auto-resolve, or visitor confirmation.
@@ -424,7 +458,7 @@ The event does not include customer message bodies. After receiving an event:
 | Widget script | `/api/widget.js` |
 | Chat | `/api/chat/bootstrap`, `/api/chat/messages`, `/api/chat/conversations`, `/api/chat/typing`, `/api/chat/stream`, `/api/chat/resolution` |
 | Email | `/api/email/inbound`, `/api/email/reply`, `/api/email/messages`, `/api/email/conversations`, `/api/email/status`, `/api/email/draft`, `/api/email/analytics`, `/api/email/contact-timeline`, `/api/email/health` |
-| Gmail | `/api/email/gmail/status`, `/api/email/gmail/sync` |
+| Gmail | `/api/email/gmail/status`, `/api/email/gmail/sync`, `/api/email/gmail/push` |
 | Unified inbox | `/api/inbox/conversations`, `/api/inbox/messages`, `/api/inbox/reply`, `/api/inbox/status`, `/api/inbox/assignment`, `/api/inbox/comments`, `/api/inbox/canned-responses`, `/api/inbox/draft`, `/api/inbox/summary`, `/api/inbox/analytics` |
 | Knowledge base | `/api/kb/manage`, `/api/kb/search`, `/api/kb/suggest`, `/api/kb/domain`, `/api/kb/from-conversation` |
 | Policies | `/api/policies` |
@@ -458,10 +492,10 @@ erDiagram
 | `WorkspaceMember` | Role and status of each user inside a workspace |
 | `Invite` | Team invite tokens, roles, expiry, acceptance state |
 | `Session` | Refresh-token-backed login sessions |
-| `Conversation` | One customer issue across chat or email, with ticket number and status |
+| `Conversation` | One customer issue across chat or email, with nullable ticket number and status |
 | `ChatMessage` | Messages from visitor, agent, or system |
 | `EmailMessageReference` | Message-ID, In-Reply-To, References tracking for email threading |
-| `GmailIntegration` | OAuth tokens and sync state for connected Gmail inboxes |
+| `GmailIntegration` | OAuth tokens, `historyId`, and sync/watch state for connected Gmail inboxes |
 | `ChatTypingState` | Short-lived typing state for visitor/agent |
 | `AssignmentEvent` | Assignment/reassignment audit trail |
 | `ConversationComment` | Internal notes on conversations |
@@ -471,6 +505,28 @@ erDiagram
 | `KnowledgeBaseArticle` | Draft/published articles |
 | `KnowledgeBaseDomain` | Custom help-center domain verification state |
 | `AuditLog` | Account/workspace/assignment audit events |
+
+### Schema Design Notes
+
+The schema is intentionally centered on a small set of operational primitives:
+
+- `Workspace` is the tenant boundary. Most product tables include `workspaceId`, and route handlers validate that the current user or visitor token belongs to that workspace before reading data.
+- `Conversation` is the shared inbox unit. Both `EMAIL` and `CHAT_WIDGET` channels use the same status, assignee, comments, SLA, summary, and ticket-number behavior.
+- `ChatMessage` is the shared message ledger. Email messages are stored here too, which keeps the inbox UI channel-agnostic.
+- `EmailMessageReference` is the email threading and dedupe table. The unique `(workspaceId, messageId)` constraint prevents duplicate rows when Gmail Pub/Sub push and polling fallback both observe the same email.
+- `Conversation.ticketNumber` is nullable because chat conversations can begin with a greeting. The number is created once a real support issue is detected; email conversations receive a ticket during import.
+- `GmailIntegration` stores OAuth refresh/access tokens, `historyId`, and sync timestamps for each connected support inbox.
+- `SupportPolicy` and `KnowledgeBaseArticle` are separate on purpose: policies guide support decisions, while KB articles are customer-facing content that can be suggested in replies.
+- `AssignmentEvent`, `ConversationComment`, and `AuditLog` preserve the operational history needed by admins without overloading the message table.
+
+Important indexes and constraints:
+
+- `Workspace.slug` is unique for stable help-center and widget routing.
+- `WorkspaceMember` is unique on `(workspaceId, userId)` so one user has one role per workspace.
+- `Invite.token` is unique and expires independently of membership.
+- `Conversation` is unique on `(workspaceId, ticketNumber)` while allowing null ticket numbers during early chat.
+- `EmailMessageReference` is unique on `(workspaceId, messageId)` and indexed by `inReplyTo` for thread matching.
+- `KnowledgeBaseArticle` is unique on `(workspaceId, slug)` for clean public article URLs.
 
 ### Enums
 
@@ -498,10 +554,11 @@ sequenceDiagram
   participant A as Agent inbox
 
   V->>API: POST /api/chat/bootstrap
-  API->>DB: create/reuse conversation and ticket
-  API-->>V: visitor token, conversationId, ticketNumber
+  API->>DB: create/reuse visitor conversation without public ticket
+  API-->>V: visitor token, conversationId
   V->>API: POST /api/chat/messages
   API->>DB: store visitor message
+  API->>DB: generate ticket only when message is a substantive issue
   API->>AI: generate policy-aware reply
   AI-->>API: reply or fallback
   API->>DB: store agent/system reply
@@ -512,7 +569,7 @@ sequenceDiagram
   V->>API: GET /api/chat/messages
 ```
 
-The widget persists `conversationId`, `visitorToken`, `customerKey`, and ticket number in local storage. Returning visitors in the same browser see previous chat history.
+The widget persists `conversationId`, `visitorToken`, and `customerKey` in local storage. A ticket number is created and shown only after the visitor describes a real issue, so greetings do not immediately become support tickets. Returning visitors in the same browser see previous chat history.
 
 ### Email Inbox Flow
 
@@ -520,6 +577,7 @@ The widget persists `conversationId`, `visitorToken`, `customerKey`, and ticket 
 sequenceDiagram
   participant C as Customer
   participant G as Gmail
+  participant P as Pub/Sub
   participant API as Next.js API
   participant DB as PostgreSQL
   participant Q as BullMQ
@@ -528,7 +586,9 @@ sequenceDiagram
   participant A as Agent inbox
 
   C->>G: email support.cosmofeed@gmail.com
-  API->>G: Gmail sync via OAuth
+  G->>P: publish inbox update
+  P->>API: POST /api/email/gmail/push
+  API->>G: fetch changed messages via Gmail OAuth
   API->>DB: normalize sender, subject, Message-ID
   API->>DB: find/create conversation by Message-ID headers
   API->>Q: enqueue auto acknowledgement
@@ -537,7 +597,7 @@ sequenceDiagram
   API->>A: conversation appears in unified inbox
 ```
 
-Threading uses `Message-ID`, `In-Reply-To`, and `References`. If a reply references an existing message, it is appended to the same conversation.
+Threading uses `Message-ID`, `In-Reply-To`, and `References`. If a reply references an existing message, it is appended to the same conversation. The worker can also poll Gmail on `GMAIL_SYNC_INTERVAL_MS`; both push and polling use the same duplicate-safe import path.
 
 ### AI Provider Fallback
 
@@ -609,6 +669,7 @@ The script injects an iframe that loads the widget page. Widget state is persist
 - PostgreSQL database, preferably Neon for parity with deployment
 - Redis URL, optional locally but required for scalable realtime/worker behavior
 - Gmail OAuth credentials for Gmail sync
+- Google Pub/Sub topic and push webhook secret for near-real-time Gmail notifications
 - SMTP provider credentials for outbound email
 - AI provider credentials for AI replies/drafts/summaries
 
@@ -733,6 +794,10 @@ Set environment variables:
 - AI variables.
 - SMTP variables.
 - Gmail OAuth variables.
+- Gmail Pub/Sub variables:
+  - `GMAIL_PUBSUB_TOPIC`
+  - `GMAIL_PUSH_WEBHOOK_SECRET`
+  - `GMAIL_SYNC_INTERVAL_MS`
 - Realtime client/server URLs.
 - Inbound email webhook secret.
 
@@ -776,6 +841,11 @@ Important env:
 - SMTP variables
 - AI variables
 - `APP_URL`
+- Gmail OAuth variables
+- `GMAIL_PUBSUB_TOPIC`
+- `GMAIL_PUSH_WEBHOOK_SECRET`
+- `GMAIL_SYNC_INTERVAL_MS`
+- `GMAIL_WATCH_RENEW_INTERVAL_MS`
 
 ## Testing Guide
 
@@ -841,12 +911,13 @@ support.cosmofeed@gmail.com
 Steps:
 
 1. Send an email to `support.cosmofeed@gmail.com`.
-2. Run or wait for Gmail sync.
+2. Wait for Pub/Sub push to trigger sync, click **Sync**, or wait for polling fallback.
 3. Open `/inbox`.
 4. Confirm the email appears as an `EMAIL` conversation.
 5. Reply to the thread from the unified inbox.
 6. Send a customer reply to the same email thread.
 7. Confirm the reply stays inside the same conversation via Message-ID threading.
+8. Confirm duplicate push/poll imports do not create duplicate conversations for the same email.
 
 Manual local verification:
 
@@ -914,7 +985,7 @@ Queue worker health:
 https://cosmofeed-help-ccp-worker.onrender.com/health
 
 GitHub repository:
-<repo-link>
+https://github.com/swaritpatel/CustomerCommunicationPortal
 
 Thanks,
 Swarit
@@ -922,7 +993,8 @@ Swarit
 
 ## Known Limitations And Future Work
 
-- Add Gmail push notifications through Pub/Sub for lower-latency email sync.
+- Gmail Pub/Sub push notifications are implemented, but the push endpoint currently uses a shared secret query parameter instead of Pub/Sub authenticated push JWT verification.
+- Gmail push notifications trigger a bounded Gmail API sync path; a future version can use Gmail history delta replay more deeply for very large inboxes.
 - Add richer RBAC beyond admin/agent.
 - Add audit log UI for all sensitive actions.
 - Add production DNS verification for custom help center domains.

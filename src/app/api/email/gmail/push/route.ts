@@ -36,10 +36,19 @@ function decodePubSubData(data: string | undefined) {
 }
 
 async function POSTHandler(request: Request) {
+  const startedAt = Date.now();
   const url = new URL(request.url);
   const expectedSecret = serverEnv.GMAIL_PUSH_WEBHOOK_SECRET;
+
+  chatLog("info", "gmail_push_request_started", {
+    hasConfiguredSecret: Boolean(expectedSecret),
+    hasProvidedSecret: url.searchParams.has("secret"),
+  });
+
   if (expectedSecret && url.searchParams.get("secret") !== expectedSecret) {
-    chatLog("warn", "gmail_push_unauthorized");
+    chatLog("warn", "gmail_push_unauthorized", {
+      durationMs: Date.now() - startedAt,
+    });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -57,12 +66,25 @@ async function POSTHandler(request: Request) {
   });
 
   if (!email) {
+    chatLog("warn", "gmail_push_skipped_missing_email", {
+      subscription: body?.subscription,
+      pubsubMessageId: body?.message?.messageId || body?.message?.message_id,
+      hasData: Boolean(body?.message?.data),
+      decoded: Boolean(pushPayload),
+      durationMs: Date.now() - startedAt,
+    });
     return NextResponse.json({ ok: true, skipped: true, reason: "missing_email" }, { status: 202 });
   }
+
+  chatLog("info", "gmail_push_lookup_started", {
+    email,
+    historyId,
+  });
 
   const integrations = await db.gmailIntegration.findMany({
     where: { email },
     select: {
+      id: true,
       workspaceId: true,
       email: true,
       workspace: {
@@ -72,28 +94,59 @@ async function POSTHandler(request: Request) {
   });
 
   if (integrations.length === 0) {
-      chatLog("warn", "gmail_push_no_integration", {
+    chatLog("warn", "gmail_push_no_integration", {
       email,
       historyId,
+      durationMs: Date.now() - startedAt,
     });
     return NextResponse.json({ ok: true, skipped: true, reason: "integration_not_found" }, { status: 202 });
   }
 
+  chatLog("info", "gmail_push_integrations_found", {
+    email,
+    historyId,
+    integrations: integrations.length,
+  });
+
   const results = [];
   for (const integration of integrations) {
+    const syncStartedAt = Date.now();
     try {
+      chatLog("info", "gmail_push_sync_started", {
+        workspaceId: integration.workspaceId,
+        workspaceSlug: integration.workspace.slug,
+        integrationId: integration.id,
+        email: integration.email,
+        historyId,
+      });
+
       const result = await syncGmailInbox({
         workspaceId: integration.workspaceId,
         workspaceSlug: integration.workspace.slug,
         email: integration.email,
         maxResults: 20,
       });
+
+      chatLog("info", "gmail_push_sync_completed", {
+        workspaceId: integration.workspaceId,
+        workspaceSlug: integration.workspace.slug,
+        integrationId: integration.id,
+        email: integration.email,
+        historyId,
+        imported: result.imported,
+        skipped: result.skipped,
+        durationMs: Date.now() - syncStartedAt,
+      });
+
       results.push({ ok: true, ...result });
     } catch (error) {
       chatLog("error", "gmail_push_sync_failed", {
         workspaceId: integration.workspaceId,
+        workspaceSlug: integration.workspace.slug,
+        integrationId: integration.id,
         email: integration.email,
         historyId,
+        durationMs: Date.now() - syncStartedAt,
         error: getErrorDetails(error),
       });
       results.push({
@@ -103,6 +156,14 @@ async function POSTHandler(request: Request) {
       });
     }
   }
+
+  chatLog("info", "gmail_push_request_completed", {
+    email,
+    historyId,
+    integrations: integrations.length,
+    results,
+    durationMs: Date.now() - startedAt,
+  });
 
   return NextResponse.json({ ok: true, email, historyId, results });
 }
