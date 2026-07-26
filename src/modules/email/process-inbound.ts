@@ -39,16 +39,6 @@ async function sendAcknowledgement(input: {
   });
   const references = [input.inReplyTo];
 
-  await db.chatMessage.create({
-    data: {
-      workspaceId: input.workspaceId,
-      conversationId: input.conversationId,
-      senderType: "SYSTEM",
-      body: text,
-      readByAgentAt: now,
-    },
-  });
-
   const queued = await enqueueBackgroundJob({
     kind: "email.send",
     purpose: "AUTO_ACK",
@@ -94,6 +84,16 @@ async function sendAcknowledgement(input: {
         messageId: outbound.messageId,
         inReplyTo: input.inReplyTo,
         source: "OUTBOUND",
+      },
+    });
+
+    await db.chatMessage.create({
+      data: {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        senderType: "SYSTEM",
+        body: text,
+        readByAgentAt: now,
       },
     });
 

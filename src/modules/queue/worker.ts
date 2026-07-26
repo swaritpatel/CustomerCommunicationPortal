@@ -38,15 +38,37 @@ async function processEmailSend(job: EmailSendJob) {
     references: job.references,
   });
 
-  await db.emailMessageReference.create({
-    data: {
-      workspaceId: job.workspaceId,
-      conversationId: job.conversationId,
-      messageId: outbound.messageId,
-      inReplyTo: job.inReplyTo,
-      source: "OUTBOUND",
-    },
-  });
+  if (job.purpose === "AUTO_ACK") {
+    await db.emailMessageReference.create({
+      data: {
+        workspaceId: job.workspaceId,
+        conversationId: job.conversationId,
+        messageId: outbound.messageId,
+        inReplyTo: job.inReplyTo,
+        source: "OUTBOUND",
+      },
+    });
+
+    await db.chatMessage.create({
+      data: {
+        workspaceId: job.workspaceId,
+        conversationId: job.conversationId,
+        senderType: "SYSTEM",
+        body: job.text,
+        readByAgentAt: new Date(job.webhookOccurredAt),
+      },
+    });
+  } else {
+    await db.emailMessageReference.create({
+      data: {
+        workspaceId: job.workspaceId,
+        conversationId: job.conversationId,
+        messageId: outbound.messageId,
+        inReplyTo: job.inReplyTo,
+        source: "OUTBOUND",
+      },
+    });
+  }
 
   await deliverEmailWebhookEvent({
     type: "email.reply.sent",
