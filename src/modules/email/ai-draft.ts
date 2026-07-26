@@ -92,8 +92,10 @@ function extractAcknowledgementDecision(payload: unknown) {
 }
 
 function normalizeAcknowledgementText(text: string) {
+  const appUrl = serverEnv.APP_URL.replace(/\/$/, "");
   return text
     .replace(/^subject:\s*.*$/gim, "")
+    .replace(/(?<!https?:\/\/[^\s]*)\/help\/[^\s)]+/g, (match) => `${appUrl}${match}`)
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -152,7 +154,7 @@ export async function generateEmailAcknowledgement(input: AcknowledgementInput) 
               "Sound natural, concise, professional, and human.",
               "Use the customer message context, but do not quote or repeat the message or subject line.",
               "Use workspace support policies as the source of truth when they are relevant.",
-              "If a relevant help article is provided, include exactly one short sentence with its link.",
+              "If a relevant help article is provided, include exactly one short sentence with the full https URL exactly as provided.",
               "Do not promise refunds, credits, exact timelines, or completed actions.",
               "Do not ask for passwords, OTPs, card details, or sensitive information.",
               "Ask at most one simple follow-up question only if policy requires it.",

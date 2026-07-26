@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { db, type DbTransactionClient } from "@/lib/db";
+import { serverEnv } from "@/lib/env";
 import { chatLog } from "@/modules/chat/log";
 import { generateEmailAcknowledgement } from "@/modules/email/ai-draft";
 import { normalizeInboundEmail, resolveWorkspaceSlugFromRecipient } from "@/modules/email/inbound";
@@ -31,10 +32,12 @@ function withTicketReference(text: string, ticketNumber: string) {
 }
 
 function normalizeEmailText(text: string) {
+  const appUrl = serverEnv.APP_URL.replace(/\/$/, "");
   return text
     .split("\n")
     .map((line) => line.trimEnd())
     .join("\n")
+    .replace(/(?<!https?:\/\/[^\s]*)\/help\/[^\s)]+/g, (match) => `${appUrl}${match}`)
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
