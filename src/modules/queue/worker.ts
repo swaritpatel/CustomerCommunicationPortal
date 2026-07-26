@@ -1,6 +1,6 @@
 import { QueueEvents, Worker, type Job } from "bullmq";
 
-import { db, type DbTransactionClient } from "@/lib/db";
+import { db } from "@/lib/db";
 import { runAutoReplyWorkflow } from "@/modules/chat/auto-reply";
 import { chatLog } from "@/modules/chat/log";
 import { syncAllGmailInboxes } from "@/modules/email/gmail";
@@ -19,16 +19,14 @@ async function processEmailSend(job: EmailSendJob) {
     references: job.references,
   });
 
-  await db.$transaction(async (tx: DbTransactionClient) => {
-    await tx.emailMessageReference.create({
-      data: {
-        workspaceId: job.workspaceId,
-        conversationId: job.conversationId,
-        messageId: outbound.messageId,
-        inReplyTo: job.inReplyTo,
-        source: "OUTBOUND",
-      },
-    });
+  await db.emailMessageReference.create({
+    data: {
+      workspaceId: job.workspaceId,
+      conversationId: job.conversationId,
+      messageId: outbound.messageId,
+      inReplyTo: job.inReplyTo,
+      source: "OUTBOUND",
+    },
   });
 
   await deliverEmailWebhookEvent({

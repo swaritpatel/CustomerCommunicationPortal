@@ -8,16 +8,21 @@ type DraftInput = {
 export function buildAutoReplyDraft(input: DraftInput) {
   const greetingName = input.customerName?.trim() || "there";
   const subjectLine = input.subject?.trim() || "your request";
-  const cannedSnippet = input.cannedResponses[0]?.trim();
+  const cannedSnippet =
+    input.cannedResponses.find((response) => !/received your request/i.test(response))?.trim();
 
   const lines = [
     `Hi ${greetingName},`,
     "",
-    `We have received your request about ${subjectLine}.`,
-    cannedSnippet || "Our support team is reviewing it now and will get back to you with the next steps shortly.",
+    "Thank you for contacting Cosmofeed Support.",
+    "",
+    `This is to confirm that we have received your request regarding \"${subjectLine}\".`,
+    "",
+    "Our support team is reviewing the details and will follow up with the next update as soon as possible.",
+    ...(cannedSnippet ? ["", cannedSnippet] : []),
     "",
     "Best,",
-    "CCP Support",
+    "Cosmofeed Support",
   ];
 
   return lines.join("\n");

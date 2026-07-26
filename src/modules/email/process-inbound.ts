@@ -12,11 +12,14 @@ function buildAcknowledgementText(input: { customerName: string | null; subject:
   return [
     `Hi ${greetingName},`,
     "",
-    `We have received your request about ${input.subject}.`,
-    "Our support team is reviewing it now and will get back to you with the next steps shortly.",
+    "Thank you for contacting Cosmofeed Support.",
+    "",
+    `This is to confirm that we have received your request regarding \"${input.subject}\".`,
+    "",
+    "Our support team is reviewing the details and will follow up with the next update as soon as possible. Please keep this email thread for any additional information related to your request.",
     "",
     "Best,",
-    "CCP Support",
+    "Cosmofeed Support",
   ].join("\n");
 }
 
