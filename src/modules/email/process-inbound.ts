@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { db, type DbTransactionClient } from "@/lib/db";
 import { chatLog } from "@/modules/chat/log";
 import { normalizeInboundEmail, resolveWorkspaceSlugFromRecipient } from "@/modules/email/inbound";
@@ -38,6 +40,7 @@ async function sendAcknowledgement(input: {
     subject: input.subject,
   });
   const references = [input.inReplyTo];
+  const acknowledgementId = createHash("sha256").update(input.inReplyTo).digest("hex").slice(0, 16);
 
   const queued = await enqueueBackgroundJob({
     kind: "email.send",
@@ -51,7 +54,7 @@ async function sendAcknowledgement(input: {
     references,
     webhookOccurredAt: now.toISOString(),
   }, {
-    jobId: `email:auto-ack:${input.conversationId}`,
+    jobId: `email-auto-ack-${input.conversationId}-${acknowledgementId}`,
   });
 
   if (!queued) {
@@ -186,8 +189,6 @@ export async function processInboundEmail(payload: unknown) {
       : null;
 
   const now = new Date();
-  const isNewConversation = !existingRef;
-
   const conversation = existingRef
     ? await db.conversation.findUnique({
         where: { id: existingRef.conversationId },
@@ -277,22 +278,20 @@ export async function processInboundEmail(payload: unknown) {
     },
   });
 
-  if (isNewConversation) {
-    await sendAcknowledgement({
+  await sendAcknowledgement({
+    workspaceId: workspace.id,
+    conversationId: conversation.id,
+    customerEmail: normalized.senderEmail,
+    customerName: normalized.senderName,
+    subject: normalized.subject,
+    inReplyTo: normalized.messageId,
+  }).catch((error) => {
+    chatLog("warn", "email_auto_ack_failed", {
       workspaceId: workspace.id,
       conversationId: conversation.id,
-      customerEmail: normalized.senderEmail,
-      customerName: normalized.senderName,
-      subject: normalized.subject,
-      inReplyTo: normalized.messageId,
-    }).catch((error) => {
-      chatLog("warn", "email_auto_ack_failed", {
-        workspaceId: workspace.id,
-        conversationId: conversation.id,
-        error: error instanceof Error ? error.message : "unknown_error",
-      });
+      error: error instanceof Error ? error.message : "unknown_error",
     });
-  }
+  });
 
   return {
     ok: true as const,
