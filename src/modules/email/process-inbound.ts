@@ -2,13 +2,14 @@ import { createHash } from "node:crypto";
 
 import { db, type DbTransactionClient } from "@/lib/db";
 import { chatLog } from "@/modules/chat/log";
+import { generateEmailAcknowledgement } from "@/modules/email/ai-draft";
 import { normalizeInboundEmail, resolveWorkspaceSlugFromRecipient } from "@/modules/email/inbound";
 import { sendWorkspaceSupportEmail } from "@/modules/email/send";
 import { dispatchEmailWebhookEvent } from "@/modules/email/webhooks";
 import { enqueueBackgroundJob } from "@/modules/queue/enqueue";
 import { broadcastConversationEvent } from "@/modules/realtime/broadcast";
 
-function buildAcknowledgementText(input: { customerName: string | null; subject: string }) {
+function buildAcknowledgementText(input: { customerName: string | null }) {
   const greetingName = input.customerName?.trim() || "there";
 
   return [
@@ -16,9 +17,8 @@ function buildAcknowledgementText(input: { customerName: string | null; subject:
     "",
     "Thank you for contacting Cosmofeed Support.",
     "",
-    `This is to confirm that we have received your request regarding \"${input.subject}\".`,
-    "",
-    "Our support team is reviewing the details and will follow up with the next update as soon as possible. Please keep this email thread for any additional information related to your request.",
+    "We have received your message and our support team is reviewing the details.",
+    "We will follow up on this email thread with the next update as soon as possible.",
     "",
     "Best,",
     "Cosmofeed Support",
@@ -32,15 +32,32 @@ async function sendAcknowledgement(input: {
   customerName: string | null;
   subject: string;
   inReplyTo: string;
+  customerMessage: string;
 }) {
   const now = new Date();
   const subject = input.subject.startsWith("Re:") ? input.subject : `Re: ${input.subject}`;
-  const text = buildAcknowledgementText({
+  const fallbackText = buildAcknowledgementText({
+    customerName: input.customerName,
+  });
+  const aiAcknowledgement = await generateEmailAcknowledgement({
+    workspaceId: input.workspaceId,
+    conversationId: input.conversationId,
     customerName: input.customerName,
     subject: input.subject,
+    customerMessage: input.customerMessage,
   });
+  const text = aiAcknowledgement?.text ?? fallbackText;
   const references = [input.inReplyTo];
   const acknowledgementId = createHash("sha256").update(input.inReplyTo).digest("hex").slice(0, 16);
+
+  chatLog("info", "email_auto_ack_text_prepared", {
+    workspaceId: input.workspaceId,
+    conversationId: input.conversationId,
+    customerEmail: input.customerEmail,
+    aiUsed: Boolean(aiAcknowledgement),
+    aiModel: aiAcknowledgement?.model,
+    textLength: text.length,
+  });
 
   chatLog("info", "email_auto_ack_enqueue_started", {
     workspaceId: input.workspaceId,
@@ -353,6 +370,7 @@ export async function processInboundEmail(payload: unknown) {
     customerName: normalized.senderName,
     subject: normalized.subject,
     inReplyTo: normalized.messageId,
+    customerMessage: normalized.textBody || normalized.htmlBody || "",
   }).catch((error) => {
     chatLog("warn", "email_auto_ack_failed", {
       workspaceId: workspace.id,
