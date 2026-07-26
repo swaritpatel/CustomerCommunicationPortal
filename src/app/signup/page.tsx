@@ -1,8 +1,20 @@
 import Link from "next/link";
 
 import { SignupForm } from "@/modules/auth/components/signup-form";
+import { findUsableInvite } from "@/modules/team/invites";
 
-export default function SignupPage() {
+type SignupPageProps = {
+  searchParams?: Promise<{
+    invite?: string;
+  }>;
+};
+
+export default async function SignupPage({ searchParams }: SignupPageProps) {
+  const params = await searchParams;
+  const inviteToken = params?.invite?.trim() || "";
+  const invite = inviteToken ? await findUsableInvite(inviteToken) : null;
+  const usableInvite = invite && invite.status === "PENDING" && invite.expiresAt > new Date() ? invite : null;
+
   return (
     <main className="min-h-screen px-6 py-8 sm:px-8 lg:px-10">
       <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-7xl gap-6 lg:grid-cols-[0.94fr_1.06fr]">
@@ -13,14 +25,19 @@ export default function SignupPage() {
               Create the first admin account.
             </h1>
             <p className="mt-3 text-sm leading-7 text-[var(--color-muted)]">
-              This flow will create the workspace, attach the first Admin membership, and start verification.
+              {usableInvite
+                ? `Create your account to join ${usableInvite.workspace.name}.`
+                : "This flow will create the workspace, attach the first Admin membership, and start verification."}
             </p>
 
-            <SignupForm />
+            <SignupForm inviteToken={usableInvite?.token} inviteEmail={usableInvite?.email} />
 
             <div className="mt-6 flex items-center justify-between gap-4 text-sm text-[var(--color-muted)]">
               <span>Verification and reset flows follow the same trust model.</span>
-              <Link href="/login" className="font-semibold text-[var(--color-accent-strong)]">
+              <Link
+                href={usableInvite ? `/login?invite=${encodeURIComponent(usableInvite.token)}` : "/login"}
+                className="font-semibold text-[var(--color-accent-strong)]"
+              >
                 Already have access?
               </Link>
             </div>

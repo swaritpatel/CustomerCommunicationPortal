@@ -19,14 +19,17 @@ function FieldError({ state, field }: { state: AuthActionState; field: string })
   return <p className="mt-2 text-sm text-[var(--color-danger)]">{message}</p>;
 }
 
-export function SignupForm() {
+export function SignupForm({ inviteToken, inviteEmail }: { inviteToken?: string; inviteEmail?: string }) {
   const [state, action] = useActionState(signupAction, initialAuthActionState);
+  const googleHref = inviteToken
+    ? `/api/auth/google/account/start?mode=signup&invite=${encodeURIComponent(inviteToken)}`
+    : "/api/auth/google/account/start?mode=signup";
 
   return (
     <div className="mt-8 space-y-4">
       <a
         className="flex w-full items-center justify-center rounded-[1.25rem] border border-[var(--color-line)] bg-white px-5 py-3 text-sm font-bold text-[var(--color-ink)] transition hover:border-[var(--color-line-strong)]"
-        href="/api/auth/google/account/start?mode=signup"
+        href={googleHref}
       >
         Continue with Google
       </a>
@@ -38,13 +41,20 @@ export function SignupForm() {
       </div>
 
       <form action={action} className="space-y-4">
-      <div>
-        <label className="mb-2 block text-sm font-semibold" htmlFor="workspaceName">
-          Workspace name
-        </label>
-        <input id="workspaceName" name="workspaceName" className="input" placeholder="Northstar Support" />
-        <FieldError state={state} field="workspaceName" />
-      </div>
+      {inviteToken ? (
+        <>
+          <input type="hidden" name="inviteToken" value={inviteToken} />
+          <input type="hidden" name="workspaceName" value="Invited Workspace" />
+        </>
+      ) : (
+        <div>
+          <label className="mb-2 block text-sm font-semibold" htmlFor="workspaceName">
+            Workspace name
+          </label>
+          <input id="workspaceName" name="workspaceName" className="input" placeholder="Northstar Support" />
+          <FieldError state={state} field="workspaceName" />
+        </div>
+      )}
 
       <div>
         <label className="mb-2 block text-sm font-semibold" htmlFor="fullName">
@@ -58,7 +68,15 @@ export function SignupForm() {
         <label className="mb-2 block text-sm font-semibold" htmlFor="email">
           Work email
         </label>
-        <input id="email" name="email" type="email" className="input" placeholder="aarav@northstar.io" />
+        <input
+          id="email"
+          name="email"
+          type="email"
+          className="input"
+          placeholder="aarav@northstar.io"
+          defaultValue={inviteEmail}
+          readOnly={Boolean(inviteEmail)}
+        />
         <FieldError state={state} field="email" />
       </div>
 

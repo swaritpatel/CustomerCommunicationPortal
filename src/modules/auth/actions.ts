@@ -7,6 +7,7 @@ import type { AuthActionState } from "@/modules/auth/form-state";
 import { loginSchema, signupSchema } from "@/modules/auth/schemas";
 import { hashPassword, verifyPassword } from "@/modules/auth/password";
 import { clearSession, issueSession } from "@/modules/auth/session";
+import { acceptInviteForUser } from "@/modules/team/invites";
 import { toWorkspaceSlug } from "@/modules/workspaces/slug";
 
 function getString(formData: FormData, key: string) {
@@ -53,6 +54,7 @@ export async function signupAction(
   _previousState: AuthActionState,
   formData: FormData,
 ) {
+  const inviteToken = getString(formData, "inviteToken");
   const parsedInput = signupSchema.safeParse({
     workspaceName: getString(formData, "workspaceName"),
     fullName: getString(formData, "fullName"),
@@ -68,6 +70,51 @@ export async function signupAction(
   const passwordHash = await hashPassword(parsedInput.data.password);
 
   try {
+    if (inviteToken) {
+      const result = await db.$transaction(async (tx: DbTransactionClient) => {
+        const user = await tx.user.create({
+          data: {
+            fullName: parsedInput.data.fullName,
+            email: parsedInput.data.email,
+            passwordHash,
+          },
+        });
+
+        const accepted = await acceptInviteForUser(tx, {
+          token: inviteToken,
+          userId: user.id,
+          email: user.email,
+        });
+
+        if (!accepted.ok) {
+          throw new Error(`Invite could not be accepted: ${accepted.reason}`);
+        }
+
+        await tx.auditLog.create({
+          data: {
+            workspaceId: accepted.membership.workspaceId,
+            actorUserId: user.id,
+            action: "USER_SIGNED_UP",
+            entityType: "user",
+            entityId: user.id,
+            metadata: { email: user.email, source: "invite" },
+          },
+        });
+
+        return { user, membership: accepted.membership };
+      });
+
+      await issueSession({
+        sub: result.user.id,
+        email: result.user.email,
+        workspaceId: result.membership.workspace.id,
+        workspaceSlug: result.membership.workspace.slug,
+        role: result.membership.role,
+      });
+
+      redirect("/dashboard");
+    }
+
     const result = await db.$transaction(async (tx: DbTransactionClient) => {
       const user = await tx.user.create({
         data: {
@@ -147,6 +194,7 @@ export async function loginAction(
   _previousState: AuthActionState,
   formData: FormData,
 ) {
+  const inviteToken = getString(formData, "inviteToken");
   const parsedInput = loginSchema.safeParse({
     email: getString(formData, "email"),
     password: getString(formData, "password"),
@@ -183,7 +231,27 @@ export async function loginAction(
     return errorState("Invalid email or password.");
   }
 
-  const primaryMembership = user.memberships[0];
+  let primaryMembership = user.memberships[0];
+
+  if (inviteToken) {
+    const accepted = await db.$transaction(async (tx: DbTransactionClient) =>
+      acceptInviteForUser(tx, {
+        token: inviteToken,
+        userId: user.id,
+        email: user.email,
+      }),
+    );
+
+    if (!accepted.ok) {
+      return errorState(
+        accepted.reason === "email_mismatch"
+          ? "This invite was sent to a different email address."
+          : "This invite is invalid or has expired.",
+      );
+    }
+
+    primaryMembership = accepted.membership;
+  }
 
   if (!primaryMembership) {
     return errorState("This account does not have an active workspace membership.");

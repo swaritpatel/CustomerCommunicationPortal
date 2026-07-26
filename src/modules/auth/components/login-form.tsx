@@ -20,14 +20,20 @@ function FieldError({ state, field }: { state: AuthActionState; field: string })
   return <p className="mt-2 text-sm text-[var(--color-danger)]">{message}</p>;
 }
 
-export function LoginForm() {
+export function LoginForm({ inviteToken, inviteEmail }: { inviteToken?: string; inviteEmail?: string }) {
   const [state, action] = useActionState(loginAction, initialAuthActionState);
+  const googleHref = inviteToken
+    ? `/api/auth/google/account/start?mode=login&invite=${encodeURIComponent(inviteToken)}`
+    : "/api/auth/google/account/start?mode=login";
+  const signupHref = inviteToken
+    ? `/signup?invite=${encodeURIComponent(inviteToken)}`
+    : "/signup";
 
   return (
     <div className="mt-8 space-y-4">
       <a
         className="flex w-full items-center justify-center rounded-[1.25rem] border border-[var(--color-line)] bg-white px-5 py-3 text-sm font-bold text-[var(--color-ink)] transition hover:border-[var(--color-line-strong)]"
-        href="/api/auth/google/account/start?mode=login"
+        href={googleHref}
       >
         Continue with Google
       </a>
@@ -39,11 +45,20 @@ export function LoginForm() {
       </div>
 
       <form action={action} className="space-y-4">
+      {inviteToken ? <input type="hidden" name="inviteToken" value={inviteToken} /> : null}
       <div>
         <label className="mb-2 block text-sm font-semibold text-[var(--color-ink)]" htmlFor="email">
           Work email
         </label>
-        <input id="email" name="email" type="email" placeholder="ops@ccp.app" className="input" />
+        <input
+          id="email"
+          name="email"
+          type="email"
+          placeholder="ops@ccp.app"
+          className="input"
+          defaultValue={inviteEmail}
+          readOnly={Boolean(inviteEmail)}
+        />
         <FieldError state={state} field="email" />
       </div>
 
@@ -52,7 +67,7 @@ export function LoginForm() {
           <label className="block text-sm font-semibold text-[var(--color-ink)]" htmlFor="password">
             Password
           </label>
-          <Link href="/signup" className="text-sm font-semibold text-[var(--color-accent-strong)]">
+          <Link href={signupHref} className="text-sm font-semibold text-[var(--color-accent-strong)]">
             Need an account?
           </Link>
         </div>

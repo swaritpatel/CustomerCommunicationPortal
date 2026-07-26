@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { serverEnv } from "@/lib/env";
 import { hashPassword } from "@/modules/auth/password";
 import { issueSession } from "@/modules/auth/session";
+import { acceptInviteForUser } from "@/modules/team/invites";
 import {
   exchangeGoogleCode,
   getGoogleAccountProfile,
@@ -23,6 +24,16 @@ type GoogleOAuthState = {
   workspaceSlug?: unknown;
   userId?: unknown;
 };
+
+function readCookie(request: Request, name: string) {
+  const cookie = request.headers.get("cookie") || "";
+  const match = cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`));
+
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : "";
+}
 
 function redirectToLogin(request: Request, params?: Record<string, string>) {
   const url = new URL("/login", serverEnv.APP_URL || new URL(request.url).origin);
@@ -74,6 +85,75 @@ async function handleAccountAuth(request: Request, code: string) {
   }
 
   const fullName = profile.name?.trim() || profile.given_name?.trim() || email.split("@")[0] || "Google User";
+  const inviteToken = readCookie(request, "relaydesk_invite");
+
+  if (inviteToken) {
+    const result = await db.$transaction(async (tx) => {
+      const existingUser = await tx.user.findUnique({
+        where: { email },
+      });
+      const user =
+        existingUser ??
+        (await tx.user.create({
+          data: {
+            fullName,
+            email,
+            passwordHash: await hashPassword(crypto.randomUUID()),
+            emailVerifiedAt: new Date(),
+          },
+        }));
+
+      const accepted = await acceptInviteForUser(tx, {
+        token: inviteToken,
+        userId: user.id,
+        email: user.email,
+      });
+
+      if (!accepted.ok) {
+        throw new Error(`Invite could not be accepted: ${accepted.reason}`);
+      }
+
+      if (!existingUser) {
+        await tx.auditLog.create({
+          data: {
+            workspaceId: accepted.membership.workspaceId,
+            actorUserId: user.id,
+            action: "USER_SIGNED_UP",
+            entityType: "user",
+            entityId: user.id,
+            metadata: { email: user.email, provider: "google", source: "invite" },
+          },
+        });
+      }
+
+      return {
+        user,
+        membership: accepted.membership,
+        created: !existingUser,
+      };
+    });
+
+    await issueSession({
+      sub: result.user.id,
+      email: result.user.email,
+      workspaceId: result.membership.workspace.id,
+      workspaceSlug: result.membership.workspace.slug,
+      role: result.membership.role,
+    });
+
+    const dashboardUrl = new URL("/dashboard", serverEnv.APP_URL || new URL(request.url).origin);
+    dashboardUrl.searchParams.set("google", result.created ? "invite_signed_up" : "invite_accepted");
+    const response = NextResponse.redirect(dashboardUrl);
+    response.cookies.set("relaydesk_invite", "", {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 0,
+    });
+    return response;
+  }
+
   const existingUser = await db.user.findUnique({
     where: { email },
     include: {

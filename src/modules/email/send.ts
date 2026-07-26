@@ -5,6 +5,7 @@ export async function sendWorkspaceSupportEmail(input: {
   to: string;
   subject: string;
   text: string;
+  html?: string;
   inReplyTo?: string | null;
   references?: string[];
 }) {

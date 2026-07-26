@@ -18,6 +18,7 @@ async function GETHandler(request: Request) {
 
   const url = new URL(request.url);
   const mode = parseMode(url.searchParams.get("mode"));
+  const invite = url.searchParams.get("invite")?.trim();
   const state = await new SignJWT({
     purpose: "account_auth",
     mode,
@@ -28,7 +29,17 @@ async function GETHandler(request: Request) {
     .setExpirationTime("10m")
     .sign(stateSecret);
 
-  return NextResponse.redirect(buildGoogleAccountAuthUrl(state));
+  const response = NextResponse.redirect(buildGoogleAccountAuthUrl(state));
+  if (invite) {
+    response.cookies.set("relaydesk_invite", invite, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 10,
+    });
+  }
+  return response;
 }
 
 export const GET = withApiLogging(GETHandler, "GET src/app/api/auth/google/account/start");

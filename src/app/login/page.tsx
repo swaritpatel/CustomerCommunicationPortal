@@ -1,8 +1,20 @@
 import Link from "next/link";
 
 import { LoginForm } from "@/modules/auth/components/login-form";
+import { findUsableInvite } from "@/modules/team/invites";
 
-export default function LoginPage() {
+type LoginPageProps = {
+  searchParams?: Promise<{
+    invite?: string;
+  }>;
+};
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const params = await searchParams;
+  const inviteToken = params?.invite?.trim() || "";
+  const invite = inviteToken ? await findUsableInvite(inviteToken) : null;
+  const usableInvite = invite && invite.status === "PENDING" && invite.expiresAt > new Date() ? invite : null;
+
   return (
     <main className="min-h-screen px-6 py-8 sm:px-8 lg:px-10">
       <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-7xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
@@ -37,10 +49,12 @@ export default function LoginPage() {
             <p className="eyebrow">Welcome back</p>
             <h2 className="mt-3 text-3xl font-extrabold tracking-[-0.04em]">Log into your workspace</h2>
             <p className="mt-3 text-sm leading-7 text-[var(--color-muted)]">
-              Use your work email and password. Full session hardening and verification will wire into this flow next.
+              {usableInvite
+                ? `Log in to accept your invite to ${usableInvite.workspace.name}.`
+                : "Use your work email and password. Full session hardening and verification will wire into this flow next."}
             </p>
 
-            <LoginForm />
+            <LoginForm inviteToken={usableInvite?.token} inviteEmail={usableInvite?.email} />
 
             <div className="mt-6 flex items-center justify-between gap-4 text-sm text-[var(--color-muted)]">
               <Link href="/" className="font-semibold text-[var(--color-ink)]">

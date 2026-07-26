@@ -6,6 +6,7 @@ import {
 } from "@/modules/team/actions";
 import { requireActiveMembership } from "@/modules/auth/guards";
 import { db } from "@/lib/db";
+import { buildInviteUrl } from "@/modules/team/invites";
 
 type TeamMemberItem = {
   id: string;
@@ -23,6 +24,7 @@ type PendingInviteItem = {
   id: string;
   email: string;
   role: string;
+  token: string;
   expiresAt: Date;
 };
 
@@ -343,6 +345,9 @@ export default async function TeamPage() {
                             <p className="font-bold tracking-[-0.03em]">{invite.email}</p>
                             <p className="mt-2 text-sm text-[var(--color-muted)]">
                               {invite.role} · Expires in {daysLeft} day{daysLeft === 1 ? "" : "s"}
+                            </p>
+                            <p className="mt-3 break-all text-xs leading-6 text-[var(--color-muted)]">
+                              {buildInviteUrl(invite.token)}
                             </p>
                           </div>
                           <span className="rounded-full bg-[rgba(182,90,52,0.09)] px-3 py-1 text-sm font-semibold text-[var(--color-accent-strong)]">

@@ -13,6 +13,7 @@ import {
 } from "@/modules/auth/schemas";
 import { requireActiveMembership } from "@/modules/auth/guards";
 import { canBeAssigned, canChangeAssignment, canManageMembers } from "@/modules/team/policy";
+import { sendTeamInviteEmail } from "@/modules/team/invites";
 
 function readString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -25,7 +26,7 @@ function revalidateTeamSurfaces() {
 }
 
 export async function inviteMemberAction(formData: FormData) {
-  const { claims } = await requireActiveMembership();
+  const { claims, membership } = await requireActiveMembership();
 
   if (!canManageMembers(claims.role)) {
     return;
@@ -101,6 +102,15 @@ export async function inviteMemberAction(formData: FormData) {
         },
       },
     });
+  });
+
+  await sendTeamInviteEmail({
+    workspaceId: claims.workspaceId,
+    workspaceName: membership.workspace.name,
+    email: parsed.data.email,
+    role: parsed.data.role,
+    token,
+    invitedByName: membership.user.fullName,
   });
 
   revalidateTeamSurfaces();
