@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   BarChart3,
   BookOpen,
@@ -29,6 +29,13 @@ type WorkspaceShellProps = {
   workspaceSlug: string;
   role: string;
   userEmail: string;
+  unreadCount: number;
+  unresolvedCount: number;
+  chatUnreadCount: number;
+  pendingInviteCount: number;
+};
+
+type WorkspaceBadgeCounts = {
   unreadCount: number;
   unresolvedCount: number;
   chatUnreadCount: number;
@@ -84,10 +91,69 @@ export function WorkspaceShell({
   pendingInviteCount,
 }: WorkspaceShellProps) {
   const pathname = usePathname();
+  const [counts, setCounts] = useState<WorkspaceBadgeCounts>({
+    unreadCount,
+    unresolvedCount,
+    chatUnreadCount,
+    pendingInviteCount,
+  });
+
+  const refreshBadgeCounts = useCallback(async () => {
+    const response = await fetch("/api/inbox/badges", { cache: "no-store" }).catch(() => null);
+    if (!response || !response.ok) {
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as Partial<WorkspaceBadgeCounts> | null;
+    if (!payload) {
+      return;
+    }
+
+    setCounts((current) => ({
+      unreadCount: typeof payload.unreadCount === "number" ? payload.unreadCount : current.unreadCount,
+      unresolvedCount: typeof payload.unresolvedCount === "number" ? payload.unresolvedCount : current.unresolvedCount,
+      chatUnreadCount: typeof payload.chatUnreadCount === "number" ? payload.chatUnreadCount : current.chatUnreadCount,
+      pendingInviteCount: typeof payload.pendingInviteCount === "number" ? payload.pendingInviteCount : current.pendingInviteCount,
+    }));
+  }, []);
+
+  useEffect(() => {
+    const refreshTimer = window.setTimeout(() => {
+      void refreshBadgeCounts();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(refreshTimer);
+    };
+  }, [pathname, refreshBadgeCounts]);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        void refreshBadgeCounts();
+      }
+    };
+    const refresh = () => {
+      void refreshBadgeCounts();
+    };
+    const interval = window.setInterval(refresh, 15_000);
+
+    window.addEventListener("focus", refresh);
+    window.addEventListener("workspace-badges:refresh", refresh);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("workspace-badges:refresh", refresh);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refreshBadgeCounts]);
+
   const badgeValues = {
-    unread: unreadCount,
-    chat: chatUnreadCount,
-    invites: pendingInviteCount,
+    unread: counts.unreadCount,
+    chat: counts.chatUnreadCount,
+    invites: counts.pendingInviteCount,
   };
 
   const renderLink = (item: NavigationItem) => {
@@ -149,7 +215,7 @@ export function WorkspaceShell({
               <Radio size={16} />
               Open queue
             </span>
-            <strong>{compactCount(unresolvedCount)}</strong>
+            <strong>{compactCount(counts.unresolvedCount)}</strong>
           </div>
           <div className="workspace-profile">
             <span className="workspace-profile-avatar">{initials(userEmail) || "CF"}</span>
@@ -172,9 +238,9 @@ export function WorkspaceShell({
           <span><strong>Cosmofeed</strong><small>Support OS</small></span>
         </Link>
         <div className="workspace-mobile-actions">
-          <Link href="/inbox" className="workspace-mobile-inbox" aria-label={`${unreadCount} unread messages`}>
+          <Link href="/inbox" className="workspace-mobile-inbox" aria-label={`${counts.unreadCount} unread messages`}>
             <Inbox size={20} />
-            {unreadCount > 0 ? <span>{compactCount(unreadCount)}</span> : null}
+            {counts.unreadCount > 0 ? <span>{compactCount(counts.unreadCount)}</span> : null}
           </Link>
           <form action={logoutAction}>
             <button type="submit" className="workspace-icon-button" title="Log out" aria-label="Log out">

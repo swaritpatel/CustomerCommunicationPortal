@@ -334,6 +334,12 @@ export function UnifiedInboxClient() {
     setMessages(payload.messages ?? []);
     setTimeline(payload.timeline ?? []);
     setContactProfile(payload.contact ?? null);
+    setConversations((items) =>
+      items.map((conversation) =>
+        conversation.id === conversationId ? { ...conversation, unreadCount: 0 } : conversation,
+      ),
+    );
+    window.dispatchEvent(new Event("workspace-badges:refresh"));
   }, []);
 
   const loadAnalytics = useCallback(async () => {
