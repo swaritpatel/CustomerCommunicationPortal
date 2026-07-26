@@ -17,34 +17,79 @@ export async function getSessionClaims() {
   const cookieStore = await cookies();
   const accessToken = cookieStore.get("relaydesk_access")?.value;
 
-  if (!accessToken) {
-    return null;
-  }
+  if (accessToken) {
+    try {
+      const verified = await jwtVerify(accessToken, accessSecret);
+      const claims = verified.payload;
 
-  try {
-    const verified = await jwtVerify(accessToken, accessSecret);
-    const claims = verified.payload;
-
-    if (
-      typeof claims.sub !== "string" ||
-      typeof claims.email !== "string" ||
-      typeof claims.workspaceId !== "string" ||
-      typeof claims.workspaceSlug !== "string" ||
-      (claims.role !== "ADMIN" && claims.role !== "AGENT")
-    ) {
-      return null;
+      if (
+        typeof claims.sub === "string" &&
+        typeof claims.email === "string" &&
+        typeof claims.workspaceId === "string" &&
+        typeof claims.workspaceSlug === "string" &&
+        (claims.role === "ADMIN" || claims.role === "AGENT")
+      ) {
+        return {
+          sub: claims.sub,
+          email: claims.email,
+          workspaceId: claims.workspaceId,
+          workspaceSlug: claims.workspaceSlug,
+          role: claims.role,
+        } satisfies SessionClaims;
+      }
+    } catch {
+      // Fall through to refresh-cookie lookup below.
     }
+  }
 
-    return {
-      sub: claims.sub,
-      email: claims.email,
-      workspaceId: claims.workspaceId,
-      workspaceSlug: claims.workspaceSlug,
-      role: claims.role,
-    } satisfies SessionClaims;
-  } catch {
+  const refreshToken = cookieStore.get("relaydesk_refresh")?.value;
+  if (!refreshToken) {
     return null;
   }
+
+  const refreshTokenHash = createHash("sha256").update(refreshToken).digest("hex");
+  const session = await db.session.findFirst({
+    where: {
+      refreshTokenHash,
+      revokedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+    select: {
+      user: {
+        select: {
+          id: true,
+          email: true,
+          memberships: {
+            where: { status: "ACTIVE" },
+            orderBy: { createdAt: "asc" },
+            take: 1,
+            select: {
+              role: true,
+              workspace: {
+                select: {
+                  id: true,
+                  slug: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const membership = session?.user.memberships[0];
+  if (!session || !membership) {
+    return null;
+  }
+
+  return {
+    sub: session.user.id,
+    email: session.user.email,
+    workspaceId: membership.workspace.id,
+    workspaceSlug: membership.workspace.slug,
+    role: membership.role,
+  } satisfies SessionClaims;
 }
 
 function sessionCookieOptions(maxAge: number) {

@@ -192,6 +192,8 @@ export function UnifiedInboxClient() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("OPEN");
   const [assigneeFilter, setAssigneeFilter] = useState("ALL");
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
+  const [isLoadingConversations, setIsLoadingConversations] = useState(false);
+  const [conversationError, setConversationError] = useState("");
   const [members, setMembers] = useState<Member[]>([]);
   const [viewer, setViewer] = useState<{ id: string; role: "ADMIN" | "AGENT" } | null>(null);
   const [activeId, setActiveId] = useState("");
@@ -236,6 +238,8 @@ export function UnifiedInboxClient() {
   }, []);
 
   const loadConversations = useCallback(async () => {
+    setIsLoadingConversations(true);
+    setConversationError("");
     const params = new URLSearchParams();
     if (channelFilter !== "ALL") {
       params.set("channel", channelFilter);
@@ -247,22 +251,33 @@ export function UnifiedInboxClient() {
       params.set("assignee", assigneeFilter);
     }
 
-    const response = await fetch(`/api/inbox/conversations?${params.toString()}`, {
-      cache: "no-store",
-    }).catch(() => null);
+    try {
+      const response = await fetch(`/api/inbox/conversations?${params.toString()}`, {
+        cache: "no-store",
+      });
 
-    if (!response || !response.ok) {
-      return;
-    }
+      const payload = (await response.json().catch(() => null)) as
+        | { conversations?: InboxConversation[]; members?: Member[]; viewer?: { id: string; role: "ADMIN" | "AGENT" }; error?: string }
+        | null;
 
-    const payload = await response.json();
-    const items = (payload.conversations ?? []) as InboxConversation[];
-    setConversations(items);
-    setMembers(payload.members ?? []);
-    setViewer(payload.viewer ?? null);
+      if (!response.ok) {
+        throw new Error(payload?.error ?? `Inbox request failed (${response.status})`);
+      }
 
-    if (!activeId || !items.some((conversation) => conversation.id === activeId)) {
-      setActiveId(items[0]?.id ?? "");
+      const items = payload?.conversations ?? [];
+      setConversations(items);
+      setMembers(payload?.members ?? []);
+      setViewer(payload?.viewer ?? null);
+
+      if (!activeId || !items.some((conversation) => conversation.id === activeId)) {
+        setActiveId(items[0]?.id ?? "");
+      }
+    } catch (error) {
+      setConversations([]);
+      setActiveId("");
+      setConversationError(error instanceof Error ? error.message : "Could not load conversations");
+    } finally {
+      setIsLoadingConversations(false);
     }
   }, [activeId, assigneeFilter, channelFilter, statusFilter]);
 
@@ -738,6 +753,21 @@ export function UnifiedInboxClient() {
           ) : null}
 
           <div className="mt-5 grid max-h-[560px] gap-3 overflow-auto pr-1">
+            {isLoadingConversations ? (
+              <div className="rounded-2xl border border-[var(--color-line)] bg-[rgba(255,255,255,0.65)] px-4 py-3 text-sm text-[var(--color-muted)]">
+                Loading conversations...
+              </div>
+            ) : null}
+            {conversationError ? (
+              <div className="rounded-2xl border border-[rgba(224,75,54,0.28)] bg-[rgba(224,75,54,0.08)] px-4 py-3 text-sm font-semibold text-[#a63926]">
+                {conversationError}
+              </div>
+            ) : null}
+            {!isLoadingConversations && !conversationError && conversations.length === 0 ? (
+              <div className="rounded-2xl border border-[var(--color-line)] bg-[rgba(255,255,255,0.65)] px-4 py-3 text-sm leading-6 text-[var(--color-muted)]">
+                No conversations for the selected filters. Try All statuses or confirm you are in the workspace that received the emails.
+              </div>
+            ) : null}
             {conversations.map((conversation) => (
               <button
                 key={conversation.id}
@@ -877,7 +907,11 @@ export function UnifiedInboxClient() {
             </>
           ) : (
             <div className="flex h-full min-h-[520px] items-center justify-center text-[var(--color-muted)]">
-              No conversations match these filters.
+              {conversationError
+                ? conversationError
+                : isLoadingConversations
+                  ? "Loading conversations..."
+                  : "No conversations match these filters. Try All statuses or check the active workspace."}
             </div>
           )}
         </section>
