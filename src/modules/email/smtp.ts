@@ -29,6 +29,9 @@ export async function sendSupportEmail(input: {
     host: serverEnv.SMTP_HOST,
     port: serverEnv.SMTP_PORT,
     secure: Boolean(serverEnv.SMTP_SECURE),
+    connectionTimeout: 30_000,
+    greetingTimeout: 30_000,
+    socketTimeout: 45_000,
     auth: {
       user: serverEnv.SMTP_USER,
       pass: serverEnv.SMTP_PASS,
