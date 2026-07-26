@@ -344,12 +344,56 @@ export function WidgetChatClient() {
     }
   };
 
+  const isClarifyingSupportMessage = (message: Message | undefined) => {
+    if (!message || message.senderType === "VISITOR") {
+      return true;
+    }
+
+    const normalized = message.body.toLowerCase();
+    return [
+      "how can i assist",
+      "how can i help",
+      "what can i help",
+      "feel free to ask",
+      "please share",
+      "please provide",
+      "could you share",
+      "can you share",
+      "tell me more",
+      "more details",
+      "additional details",
+    ].some((phrase) => normalized.includes(phrase));
+  };
+
+  const hasSubstantiveVisitorIssue = () => {
+    const latestSupportIndex = messages.findLastIndex((message) => message.senderType !== "VISITOR");
+    const visitorMessages = messages.filter((message, index) => {
+      if (message.senderType !== "VISITOR") {
+        return false;
+      }
+
+      return latestSupportIndex === -1 || index < latestSupportIndex;
+    });
+
+    return visitorMessages.some((message) => {
+      const normalized = message.body.trim().toLowerCase();
+      return (
+        normalized.length >= 18 ||
+        /\b(refund|cancel|cancelled|canceled|order|payment|delivery|delivered|login|account|error|issue|problem|not received|failed|broken|help)\b/.test(
+          normalized,
+        )
+      );
+    });
+  };
+
   const lastMessage = messages.at(-1);
   const showResolutionPrompt =
     Boolean(conversationId && visitorToken) &&
     !meta.agentTyping &&
     Boolean(lastMessage) &&
-    lastMessage?.senderType !== "VISITOR";
+    lastMessage?.senderType !== "VISITOR" &&
+    !isClarifyingSupportMessage(lastMessage) &&
+    hasSubstantiveVisitorIssue();
 
   const sendResolutionFeedback = async (resolved: boolean) => {
     if (!conversationId || !visitorToken || resolutionSubmitting) {

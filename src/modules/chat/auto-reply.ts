@@ -39,6 +39,23 @@ function withTicketReference(body: string, ticketNumber: string | null, shouldIn
   ].join("\n");
 }
 
+function isClarifyingReply(body: string) {
+  const normalized = body.toLowerCase();
+  return [
+    "how can i assist",
+    "how can i help",
+    "what can i help",
+    "feel free to ask",
+    "please share",
+    "please provide",
+    "could you share",
+    "can you share",
+    "tell me more",
+    "more details",
+    "additional details",
+  ].some((phrase) => normalized.includes(phrase));
+}
+
 export async function runAutoReplyWorkflow(input: {
   conversationId: string;
   workspaceId: string;
@@ -122,7 +139,11 @@ export async function runAutoReplyWorkflow(input: {
 
     const replyBody =
       aiReply.kind === "reply"
-        ? withTicketReference(aiReply.body, conversation?.ticketNumber ?? null, shouldIncludeTicket)
+        ? withTicketReference(
+            aiReply.body,
+            conversation?.ticketNumber ?? null,
+            shouldIncludeTicket && !isClarifyingReply(aiReply.body),
+          )
         : buildFallbackReply(conversation?.ticketNumber ?? null);
 
     const now = new Date();
