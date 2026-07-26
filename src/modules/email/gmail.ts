@@ -269,7 +269,7 @@ export async function syncGmailInbox(input: {
       references: header(headers, "References"),
     });
 
-    if (result.ok) {
+    if (result.ok && !("duplicate" in result)) {
       imported += 1;
     } else {
       skipped += 1;

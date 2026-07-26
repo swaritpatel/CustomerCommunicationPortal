@@ -29,7 +29,7 @@ export type EmailSendJob = {
   text: string;
   inReplyTo: string | null;
   references: string[];
-  agentUserId: string;
+  agentUserId?: string;
   webhookOccurredAt: string;
 };
 
