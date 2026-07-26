@@ -7,6 +7,7 @@ import {
 import { requireActiveMembership } from "@/modules/auth/guards";
 import { db } from "@/lib/db";
 import { buildInviteUrl } from "@/modules/team/invites";
+import Link from "next/link";
 
 type TeamMemberItem = {
   id: string;
@@ -182,9 +183,9 @@ export default async function TeamPage() {
 
         <section className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
           <div className="min-w-0 space-y-6">
-            <article id="members" className="card fade-up rounded-[2rem] p-6" style={{ animationDelay: "80ms" }}>
-              <div className="grid gap-5 2xl:grid-cols-[240px_minmax(0,1fr)] 2xl:items-start">
-                <div className="shrink-0">
+            <article id="members" className="card fade-up overflow-hidden rounded-[2rem] p-6" style={{ animationDelay: "80ms" }}>
+              <div className="grid min-w-0 gap-5">
+                <div>
                   <p className="eyebrow">Members</p>
                   <h2 className="mt-2 text-2xl font-extrabold tracking-[-0.04em]">Workspace access</h2>
                 </div>
@@ -192,7 +193,7 @@ export default async function TeamPage() {
                 {claims.role === "ADMIN" ? (
                   <form
                     action={inviteMemberAction}
-                    className="grid w-full min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_9rem] lg:grid-cols-[minmax(220px,1fr)_9rem_auto]"
+                    className="grid w-full min-w-0 gap-3 md:grid-cols-[minmax(0,1fr)_9rem] xl:grid-cols-[minmax(0,1fr)_9rem_11rem]"
                   >
                     <input
                       name="email"
@@ -205,7 +206,7 @@ export default async function TeamPage() {
                       <option value="ADMIN">Admin</option>
                       <option value="AGENT">Agent</option>
                     </select>
-                    <button className="btn-primary h-14 min-w-[10.75rem] whitespace-nowrap px-5 text-sm sm:col-span-2 lg:col-span-1" type="submit">
+                    <button className="btn-primary h-14 w-full whitespace-nowrap px-5 text-sm md:col-span-2 xl:col-span-1" type="submit">
                       Invite teammate
                     </button>
                   </form>
@@ -217,7 +218,7 @@ export default async function TeamPage() {
               </div>
 
               <div className="mt-6 overflow-hidden rounded-[1.5rem] border border-[var(--color-line)] bg-[rgba(255,255,255,0.52)]">
-                <div className="hidden grid-cols-[1.2fr_0.8fr_0.7fr_0.7fr_1.2fr] gap-4 border-b border-[var(--color-line)] px-5 py-4 text-sm font-semibold text-[var(--color-soft)] md:grid">
+                <div className="hidden grid-cols-[minmax(170px,1.1fr)_0.65fr_0.65fr_0.65fr_minmax(240px,1.45fr)] gap-4 border-b border-[var(--color-line)] px-5 py-4 text-sm font-semibold text-[var(--color-soft)] md:grid">
                   <span>Member</span>
                   <span>Role</span>
                   <span>Status</span>
@@ -231,7 +232,7 @@ export default async function TeamPage() {
                     const load = loadByUserId.get(member.userId) ?? 0;
 
                     return (
-                      <div key={member.id} className="grid gap-4 px-5 py-5 md:grid-cols-[1.2fr_0.8fr_0.7fr_0.7fr_1.2fr] md:items-center">
+                      <div key={member.id} className="grid gap-4 px-5 py-5 md:grid-cols-[minmax(170px,1.1fr)_0.65fr_0.65fr_0.65fr_minmax(240px,1.45fr)] md:items-center">
                         <div>
                           <p className="font-bold tracking-[-0.02em]">{member.user.fullName}</p>
                           <p className="mt-1 text-sm text-[var(--color-muted)]">{member.user.email}</p>
@@ -248,17 +249,17 @@ export default async function TeamPage() {
                         <div className="text-sm text-[var(--color-muted)]">{load} open</div>
                         {claims.role === "ADMIN" ? (
                           <div className="flex flex-wrap items-center gap-2">
-                            <form action={updateMemberRoleAction} className="flex min-w-0 flex-wrap items-center gap-2">
+                            <form action={updateMemberRoleAction} className="grid min-w-[240px] grid-cols-[8.5rem_1fr] gap-2">
                               <input type="hidden" name="memberId" value={member.id} />
-                              <select name="role" defaultValue={member.role} className="input min-w-[7.5rem] py-2">
+                              <select name="role" defaultValue={member.role} className="input h-12 px-3 py-2">
                                 <option value="ADMIN">Admin</option>
                                 <option value="AGENT">Agent</option>
                               </select>
-                              <button className="btn-secondary" type="submit">Update</button>
+                              <button className="btn-secondary h-12 px-4" type="submit">Update</button>
                             </form>
                             <form action={removeMemberAction}>
                               <input type="hidden" name="memberId" value={member.id} />
-                              <button className="btn-secondary" type="submit">Remove</button>
+                              <button className="btn-secondary h-12 px-4" type="submit">Remove</button>
                             </form>
                           </div>
                         ) : (
@@ -272,13 +273,16 @@ export default async function TeamPage() {
             </article>
 
             <article id="assignment" className="card fade-up rounded-[2rem] p-6" style={{ animationDelay: "140ms" }}>
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="eyebrow">Assignment</p>
-                  <h2 className="mt-2 text-2xl font-extrabold tracking-[-0.04em]">Conversation ownership</h2>
+                  <h2 className="mt-2 text-2xl font-extrabold tracking-[-0.04em]">Assign conversations</h2>
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--color-muted)]">
+                    Open a conversation to review the full thread, then assign ownership to the right teammate.
+                  </p>
                 </div>
-                <span className="rounded-full border border-[var(--color-line-strong)] px-3 py-1 text-sm font-semibold text-[var(--color-muted)]">
-                  Manual routing in v1
+                <span className="w-fit rounded-full border border-[var(--color-line-strong)] px-3 py-1 text-sm font-semibold text-[var(--color-muted)]">
+                  Manual assignment
                 </span>
               </div>
 
@@ -291,14 +295,20 @@ export default async function TeamPage() {
                   openConversations.map((conversation: TeamConversationItem) => (
                     <div key={conversation.id} className="rounded-[1.5rem] border border-[var(--color-line)] bg-[rgba(255,255,255,0.52)] p-5">
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                        <div>
-                          <p className="font-bold tracking-[-0.03em]">{conversation.subject}</p>
+                        <div className="min-w-0">
+                          <Link
+                            href={`/inbox?status=ALL&channel=${encodeURIComponent(conversation.channel)}&conversation=${encodeURIComponent(conversation.id)}`}
+                            className="inline-flex max-w-full items-center gap-2 font-bold tracking-[-0.03em] text-[var(--color-ink)] underline-offset-4 hover:underline"
+                          >
+                            <span className="truncate">{conversation.subject}</span>
+                            <span aria-hidden="true">→</span>
+                          </Link>
                           <p className="mt-2 text-sm text-[var(--color-muted)]">
                             {conversation.channel === "CHAT_WIDGET" ? "Chat" : "Email"} · {conversation.status}
                           </p>
                         </div>
-                        <div className="rounded-full bg-[rgba(255,255,255,0.72)] px-4 py-2 text-sm font-semibold text-[var(--color-ink)]">
-                          {conversation.currentAssignee?.fullName ?? "Unassigned"}
+                        <div className="w-fit rounded-full bg-[rgba(255,255,255,0.72)] px-4 py-2 text-sm font-semibold text-[var(--color-ink)]">
+                          Owner: {conversation.currentAssignee?.fullName ?? "Unassigned"}
                         </div>
                       </div>
 

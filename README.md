@@ -98,6 +98,7 @@ Note: `/widget/chat?workspace=pinelabs` is supported in the latest code as a com
 | OpenAI API | Primary AI provider |
 | Gemini API | First AI fallback provider |
 | Groq API | Second AI fallback provider, with multiple keys tried in order |
+| cron-job.org | Lightweight free-tier health checks for Render services during evaluation |
 
 Important security note: real secret values are intentionally not committed in this README. The project uses `.env.local` locally and deployment environment variables in Vercel/Render. Never commit production `DATABASE_URL`, JWT secrets, API keys, OAuth secrets, SMTP passwords, Redis URLs, or webhook secrets.
 
@@ -848,6 +849,19 @@ Important env:
 - `GMAIL_PUSH_WEBHOOK_SECRET`
 - `GMAIL_SYNC_INTERVAL_MS`
 - `GMAIL_WATCH_RENEW_INTERVAL_MS`
+
+### Render Free-Tier Keep-Alive
+
+The realtime service and queue worker are hosted on Render. Render free-tier services can sleep after inactivity, which can slow down first websocket connections, background jobs, and email processing during evaluation.
+
+To keep the demo responsive without adding paid infrastructure, I configured cron-job.org to ping the lightweight health endpoints on a fixed schedule:
+
+```text
+https://customercommunicationportal.onrender.com/health
+https://cosmofeed-help-ccp-worker.onrender.com/health
+```
+
+These cronjobs do not mutate data. They only call health endpoints so the Render services stay warm for the submission review. In a production deployment, this would be replaced with always-on Render instances or a managed worker/runtime with no free-tier sleep behavior.
 
 ## Testing Guide
 
