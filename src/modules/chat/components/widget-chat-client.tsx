@@ -22,6 +22,7 @@ type ChatMeta = {
   visitorOnline: boolean;
   visitorTyping: boolean;
   agentTyping: boolean;
+  ticketNumber?: string | null;
 };
 
 type KbSuggestion = {
@@ -39,6 +40,7 @@ export function WidgetChatClient() {
 
   const [conversationId, setConversationId] = useState("");
   const [visitorToken, setVisitorToken] = useState("");
+  const [ticketNumber, setTicketNumber] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [meta, setMeta] = useState<ChatMeta>({
     agentOnline: false,
@@ -49,6 +51,7 @@ export function WidgetChatClient() {
   const [text, setText] = useState("");
   const [suggestions, setSuggestions] = useState<KbSuggestion[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [resolutionSubmitting, setResolutionSubmitting] = useState(false);
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const typingDebounceRef = useRef<number | null>(null);
   const lastTypingValueRef = useRef(false);
@@ -77,12 +80,14 @@ export function WidgetChatClient() {
 
     const cacheConversationId = window.localStorage.getItem(`${storagePrefix}.conversationId`) ?? "";
     const cacheVisitorToken = window.localStorage.getItem(`${storagePrefix}.visitorToken`) ?? "";
+    const cacheTicketNumber = window.localStorage.getItem(`${storagePrefix}.ticketNumber`) ?? "";
     const savedCustomerKey = window.localStorage.getItem(`${storagePrefix}.customerKey`) ?? "";
 
     if (cacheConversationId && cacheVisitorToken) {
       queueMicrotask(() => {
         setConversationId(cacheConversationId);
         setVisitorToken(cacheVisitorToken);
+        setTicketNumber(cacheTicketNumber);
       });
       return;
     }
@@ -104,11 +109,15 @@ export function WidgetChatClient() {
       .then((payload) => {
         setConversationId(payload.conversationId);
         setVisitorToken(payload.visitorToken);
+        setTicketNumber(payload.ticketNumber ?? "");
         setMessages(dedupeMessages(payload.messages ?? []));
         setMeta((previous) => ({ ...previous, agentOnline: Boolean(payload.agentOnline) }));
         window.localStorage.setItem(`${storagePrefix}.conversationId`, payload.conversationId);
         window.localStorage.setItem(`${storagePrefix}.customerKey`, payload.customerKey);
         window.localStorage.setItem(`${storagePrefix}.visitorToken`, payload.visitorToken);
+        if (payload.ticketNumber) {
+          window.localStorage.setItem(`${storagePrefix}.ticketNumber`, payload.ticketNumber);
+        }
       })
       .catch((error: unknown) => {
         console.error(error);
@@ -170,8 +179,10 @@ export function WidgetChatClient() {
           if (response.status === 401 || response.status === 403) {
             window.localStorage.removeItem(`${storagePrefix}.conversationId`);
             window.localStorage.removeItem(`${storagePrefix}.visitorToken`);
+            window.localStorage.removeItem(`${storagePrefix}.ticketNumber`);
             setConversationId("");
             setVisitorToken("");
+            setTicketNumber("");
             setMessages([]);
             setBootstrapAttempt((current) => current + 1);
           }
@@ -182,6 +193,10 @@ export function WidgetChatClient() {
       const payload = await response.json();
       setMessages(dedupeMessages(payload.messages ?? []));
       setMeta((previous) => payload.meta ?? previous);
+      if (payload.meta?.ticketNumber) {
+        setTicketNumber(payload.meta.ticketNumber);
+        window.localStorage.setItem(`${storagePrefix}.ticketNumber`, payload.meta.ticketNumber);
+      }
     };
 
     const connectStream = () => {
@@ -329,6 +344,48 @@ export function WidgetChatClient() {
     }
   };
 
+  const lastMessage = messages.at(-1);
+  const showResolutionPrompt =
+    Boolean(conversationId && visitorToken) &&
+    !meta.agentTyping &&
+    Boolean(lastMessage) &&
+    lastMessage?.senderType !== "VISITOR";
+
+  const sendResolutionFeedback = async (resolved: boolean) => {
+    if (!conversationId || !visitorToken || resolutionSubmitting) {
+      return;
+    }
+
+    setResolutionSubmitting(true);
+
+    try {
+      const response = await fetch("/api/chat/resolution", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${visitorToken}`,
+        },
+        body: JSON.stringify({ conversationId, resolved }),
+      }).catch((error: unknown) => {
+        console.error("[chat:widget_resolution_failed]", error);
+        return null;
+      });
+
+      if (!response || !response.ok) {
+        const payload = response ? ((await response.json().catch(() => null)) as { error?: string } | null) : null;
+        console.warn("[chat:widget_resolution_bad_status]", response?.status, payload?.error);
+        return;
+      }
+
+      const payload = (await response.json()) as { message?: Message };
+      if (payload.message) {
+        setMessages((current) => dedupeMessages([...current, payload.message as Message]));
+      }
+    } finally {
+      setResolutionSubmitting(false);
+    }
+  };
+
   const getInitials = (name: string) => {
     const tokens = name.trim().split(/\s+/).filter(Boolean);
     if (tokens.length === 0) {
@@ -404,6 +461,7 @@ export function WidgetChatClient() {
               <span className={`status-dot ${meta.agentOnline ? "online" : "offline"}`} />
               {meta.agentOnline ? "Agent online" : "We reply quickly"}
             </p>
+            {ticketNumber ? <p className="ticket-line">Ticket {ticketNumber}</p> : null}
           </div>
         </div>
         <button onClick={() => window.parent.postMessage("relaydesk:close", "*")}>✕</button>
@@ -438,6 +496,30 @@ export function WidgetChatClient() {
               <span />
               <span />
               <span />
+            </div>
+          </div>
+        ) : null}
+
+        {showResolutionPrompt ? (
+          <div className="resolution-card" aria-live="polite">
+            <strong>Did this resolve your issue?</strong>
+            <div className="resolution-actions">
+              <button
+                type="button"
+                className="resolution-yes"
+                disabled={resolutionSubmitting}
+                onClick={() => void sendResolutionFeedback(true)}
+              >
+                Yes
+              </button>
+              <button
+                type="button"
+                className="resolution-no"
+                disabled={resolutionSubmitting}
+                onClick={() => void sendResolutionFeedback(false)}
+              >
+                No, keep open
+              </button>
             </div>
           </div>
         ) : null}
@@ -535,6 +617,11 @@ export function WidgetChatClient() {
           display: flex;
           align-items: center;
           gap: 6px;
+        }
+        .widget-head .ticket-line {
+          color: #6a4a33;
+          font-size: 11px;
+          font-weight: 700;
         }
         .status-dot {
           width: 8px;
@@ -685,6 +772,38 @@ export function WidgetChatClient() {
         }
         .typing-pill span:nth-child(3) {
           animation-delay: 0.3s;
+        }
+        .resolution-card {
+          justify-self: center;
+          width: min(100%, 320px);
+          border: 1px solid #e8ddd0;
+          border-radius: 16px;
+          background: #fff;
+          box-shadow: 0 10px 22px rgba(74, 52, 34, 0.08);
+          color: #2c2118;
+          display: grid;
+          gap: 10px;
+          padding: 12px;
+          text-align: center;
+        }
+        .resolution-card strong {
+          font-size: 13px;
+        }
+        .resolution-actions {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+        }
+        .resolution-actions button {
+          min-height: 36px;
+          padding: 0 10px;
+          font-size: 12px;
+        }
+        .resolution-yes {
+          background: #2a9d57;
+        }
+        .resolution-no {
+          background: #2c2118;
         }
         .widget-compose {
           border-top: 1px solid #e2d6c7;

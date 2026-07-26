@@ -72,7 +72,7 @@ async function GETHandler(request: Request) {
 
     const conversation = await db.conversation.findUnique({
       where: { id: conversationId },
-      select: { id: true, workspaceId: true, visitorLastSeenAt: true },
+      select: { id: true, workspaceId: true, ticketNumber: true, visitorLastSeenAt: true },
     });
 
     if (!conversation) {
@@ -194,6 +194,7 @@ async function GETHandler(request: Request) {
           actor.kind === "AGENT"
             ? typing.some((entry: ChatTypingEntry) => entry.actorType === "AGENT" && entry.actorUserId !== viewerUserId)
             : typing.some((entry: ChatTypingEntry) => entry.actorType === "AGENT"),
+        ticketNumber: conversation.ticketNumber,
       },
     });
   } catch (error) {

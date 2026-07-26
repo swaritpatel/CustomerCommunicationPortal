@@ -146,6 +146,8 @@ export async function generatePolicyAwareReply(input: GenerateReplyInput): Promi
     formatPoliciesForPrompt(supportPolicies),
     "",
     "When support policies are relevant, use them as the source of truth.",
+    "Always produce a helpful customer-facing reply. If the issue cannot be safely resolved automatically, acknowledge it and say the support team will review it.",
+    "Do not copy the customer message back to them.",
     "Return only valid JSON with keys: reply, shouldResolve, policyIds.",
     "shouldResolve can be true only when a relevant policy explicitly allows auto-resolve and the reply fully answers the customer's request.",
   ].join("\n");

@@ -9,6 +9,36 @@ type RecentChatMessage = {
   senderUser: { fullName: string } | null;
 };
 
+function buildFallbackReply(ticketNumber: string | null) {
+  return [
+    "Thanks for sharing this with us.",
+    "",
+    "I could not fully resolve this automatically, so I am keeping this ticket open for our support team to review. We will follow up here with the next update.",
+    ticketNumber
+      ? [
+          "",
+          `Ticket number: ${ticketNumber}`,
+          "Please keep this ticket number for future reference.",
+        ].join("\n")
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function withTicketReference(body: string, ticketNumber: string | null, shouldInclude: boolean) {
+  if (!ticketNumber || !shouldInclude || body.includes(ticketNumber)) {
+    return body;
+  }
+
+  return [
+    body.trim(),
+    "",
+    `Ticket number: ${ticketNumber}`,
+    "Please keep this ticket number for future reference.",
+  ].join("\n");
+}
+
 export async function runAutoReplyWorkflow(input: {
   conversationId: string;
   workspaceId: string;
@@ -33,18 +63,33 @@ export async function runAutoReplyWorkflow(input: {
   });
 
   try {
-    const recentMessages: RecentChatMessage[] = await db.chatMessage.findMany({
-      where: { conversationId: input.conversationId },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      select: {
-        senderType: true,
-        body: true,
-        senderUser: {
-          select: { fullName: true },
+    const [conversation, recentMessages]: [
+      { ticketNumber: string | null } | null,
+      RecentChatMessage[],
+    ] = await Promise.all([
+      db.conversation.findUnique({
+        where: { id: input.conversationId },
+        select: { ticketNumber: true },
+      }),
+      db.chatMessage.findMany({
+        where: { conversationId: input.conversationId },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+        select: {
+          senderType: true,
+          body: true,
+          senderUser: {
+            select: { fullName: true },
+          },
         },
-      },
-    });
+      }),
+    ]);
+
+    const priorSupportReplyCount = recentMessages.filter(
+      (message) => message.senderType === "AGENT" || message.senderType === "SYSTEM",
+    ).length;
+    const shouldIncludeTicket = priorSupportReplyCount === 0;
+
     const supportPolicies = await findRelevantSupportPolicies({
       workspaceId: input.workspaceId,
       text: input.latestVisitorText,
@@ -66,7 +111,6 @@ export async function runAutoReplyWorkflow(input: {
         conversationId: input.conversationId,
         reason: aiReply.reason,
       });
-      return;
     }
 
     if (aiReply.kind !== "reply") {
@@ -74,8 +118,12 @@ export async function runAutoReplyWorkflow(input: {
         conversationId: input.conversationId,
         reason: aiReply.reason,
       });
-      return;
     }
+
+    const replyBody =
+      aiReply.kind === "reply"
+        ? withTicketReference(aiReply.body, conversation?.ticketNumber ?? null, shouldIncludeTicket)
+        : buildFallbackReply(conversation?.ticketNumber ?? null);
 
     const now = new Date();
     await db.$transaction([
@@ -93,7 +141,7 @@ export async function runAutoReplyWorkflow(input: {
           conversationId: input.conversationId,
           senderType: "AGENT",
           senderUserId: null,
-          body: aiReply.body,
+          body: replyBody,
           readByVisitorAt: null,
           readByAgentAt: now,
         },
@@ -102,16 +150,17 @@ export async function runAutoReplyWorkflow(input: {
         where: { id: input.conversationId },
         data: {
           updatedAt: now,
-          status: aiReply.shouldResolve ? "RESOLVED" : undefined,
+          status: aiReply.kind === "reply" && aiReply.shouldResolve ? "RESOLVED" : "OPEN",
         },
       }),
     ]);
 
     chatLog("info", "ai_reply_sent", {
       conversationId: input.conversationId,
-      model: aiReply.model,
-      policyIds: aiReply.policyIds,
-      autoResolved: aiReply.shouldResolve,
+      model: aiReply.kind === "reply" ? aiReply.model : "fallback",
+      policyIds: aiReply.kind === "reply" ? aiReply.policyIds : [],
+      autoResolved: aiReply.kind === "reply" ? aiReply.shouldResolve : false,
+      fallback: aiReply.kind !== "reply",
     });
   } catch (error) {
     chatLog("warn", "ai_reply_workflow_failed", {
