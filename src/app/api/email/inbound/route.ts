@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { serverEnv } from "@/lib/env";
 import { chatLog } from "@/modules/chat/log";
 import { processInboundEmail } from "@/modules/email/process-inbound";
+import { withApiLogging } from "@/modules/observability/api";
 
 function isInboundAuthorized(request: Request) {
   if (!serverEnv.INBOUND_EMAIL_WEBHOOK_SECRET) {
@@ -13,7 +14,7 @@ function isInboundAuthorized(request: Request) {
   return token === serverEnv.INBOUND_EMAIL_WEBHOOK_SECRET;
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     if (!isInboundAuthorized(request)) {
       chatLog("warn", "email_inbound_unauthorized");
@@ -34,3 +35,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export const POST = withApiLogging(POSTHandler, "POST src/app/api/email/inbound");

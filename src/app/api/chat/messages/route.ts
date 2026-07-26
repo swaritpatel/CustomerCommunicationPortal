@@ -7,6 +7,7 @@ import { readBearerToken, verifyVisitorToken } from "@/modules/chat/auth";
 import { chatLog } from "@/modules/chat/log";
 import { enqueueBackgroundJob } from "@/modules/queue/enqueue";
 import { broadcastConversationEvent } from "@/modules/realtime/broadcast";
+import { withApiLogging } from "@/modules/observability/api";
 
 type ChatTypingEntry = {
   actorType: "VISITOR" | "AGENT";
@@ -54,7 +55,7 @@ async function maybeGenerateAutoReply(input: {
   await runAutoReplyWorkflow(input);
 }
 
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   try {
     const actor = await resolveActor(request);
     if (!actor) {
@@ -203,7 +204,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const actor = await resolveActor(request);
     if (!actor) {
@@ -329,3 +330,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export const GET = withApiLogging(GETHandler, "GET src/app/api/chat/messages");
+export const POST = withApiLogging(POSTHandler, "POST src/app/api/chat/messages");

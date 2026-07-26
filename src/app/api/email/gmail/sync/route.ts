@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 
 import { getSessionClaims } from "@/modules/auth/session";
 import { syncGmailInbox } from "@/modules/email/gmail";
+import { withApiLogging } from "@/modules/observability/api";
 
-export async function POST() {
+async function POSTHandler() {
   const claims = await getSessionClaims();
   if (!claims) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -24,3 +25,5 @@ export async function POST() {
     );
   }
 }
+
+export const POST = withApiLogging(POSTHandler, "POST src/app/api/email/gmail/sync");

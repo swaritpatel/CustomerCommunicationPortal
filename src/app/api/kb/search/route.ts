@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
 import { chatLog } from "@/modules/chat/log";
+import { withApiLogging } from "@/modules/observability/api";
 
 function containsQuery(query: string) {
   return [
@@ -11,7 +12,7 @@ function containsQuery(query: string) {
   ];
 }
 
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   try {
     const params = new URL(request.url).searchParams;
     const workspaceSlug = params.get("workspace")?.trim();
@@ -78,3 +79,5 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export const GET = withApiLogging(GETHandler, "GET src/app/api/kb/search");

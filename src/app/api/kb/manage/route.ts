@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
 import { toWorkspaceSlug } from "@/modules/workspaces/slug";
+import { withApiLogging } from "@/modules/observability/api";
 
 const allowedArticleStatuses = ["DRAFT", "PUBLISHED"] as const;
 type AllowedArticleStatus = (typeof allowedArticleStatuses)[number];
@@ -115,7 +116,7 @@ async function requireKbMember() {
   return { claims };
 }
 
-export async function GET() {
+async function GETHandler() {
   try {
     const auth = await requireKbMember();
     if (auth.error) {
@@ -170,7 +171,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const auth = await requireKbMember();
     if (auth.error) {
@@ -296,3 +297,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export const GET = withApiLogging(GETHandler, "GET src/app/api/kb/manage");
+export const POST = withApiLogging(POSTHandler, "POST src/app/api/kb/manage");

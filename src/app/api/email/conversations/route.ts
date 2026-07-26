@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
+import { withApiLogging } from "@/modules/observability/api";
 
 const FIRST_RESPONSE_TARGET_MINUTES = 15;
 const RESOLUTION_TARGET_HOURS = 24;
@@ -26,7 +27,7 @@ type EmailConversationMessageItem = {
   createdAt: Date;
 };
 
-export async function GET() {
+async function GETHandler() {
   try {
     const claims = await getSessionClaims();
     if (!claims) {
@@ -123,3 +124,5 @@ export async function GET() {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export const GET = withApiLogging(GETHandler, "GET src/app/api/email/conversations");

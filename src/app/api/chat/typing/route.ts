@@ -5,8 +5,9 @@ import { getSessionClaims } from "@/modules/auth/session";
 import { readBearerToken, verifyVisitorToken } from "@/modules/chat/auth";
 import { chatLog } from "@/modules/chat/log";
 import { broadcastConversationEvent } from "@/modules/realtime/broadcast";
+import { withApiLogging } from "@/modules/observability/api";
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as
       | { conversationId?: string; isTyping?: boolean }
@@ -124,3 +125,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export const POST = withApiLogging(POSTHandler, "POST src/app/api/chat/typing");

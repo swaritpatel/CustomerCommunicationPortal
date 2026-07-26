@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
 import { chatLog } from "@/modules/chat/log";
+import { withApiLogging } from "@/modules/observability/api";
 
 type SuggestedArticleItem = {
   id: string;
@@ -10,7 +11,7 @@ type SuggestedArticleItem = {
   excerpt: string | null;
 };
 
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   try {
     const params = new URL(request.url).searchParams;
     const workspaceSlug = params.get("workspace")?.trim();
@@ -62,3 +63,5 @@ export async function GET(request: Request) {
     return NextResponse.json({ suggestions: [] });
   }
 }
+
+export const GET = withApiLogging(GETHandler, "GET src/app/api/kb/suggest");

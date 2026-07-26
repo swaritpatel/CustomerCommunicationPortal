@@ -6,11 +6,23 @@ import { chatLog } from "@/modules/chat/log";
 import { syncAllGmailInboxes } from "@/modules/email/gmail";
 import { sendSupportEmail } from "@/modules/email/smtp";
 import { deliverEmailWebhookEvent } from "@/modules/email/webhooks";
+import { getErrorDetails } from "@/modules/observability/log";
 import { getQueueConnection } from "@/modules/queue/connection";
 import { CCP_QUEUE_NAME, type CcpJob, type EmailSendJob } from "@/modules/queue/jobs";
 import { deliverConversationEvent } from "@/modules/realtime/broadcast";
 
 async function processEmailSend(job: EmailSendJob) {
+  const startedAt = Date.now();
+  chatLog("info", "email_send_job_started", {
+    purpose: job.purpose ?? "AGENT_REPLY",
+    workspaceId: job.workspaceId,
+    conversationId: job.conversationId,
+    customerEmail: job.customerEmail,
+    subject: job.subject,
+    inReplyTo: job.inReplyTo,
+    referencesCount: job.references.length,
+  });
+
   if (job.purpose === "AUTO_ACK" && job.inReplyTo) {
     const existingAutoAck = await db.emailMessageReference.findFirst({
       where: {
@@ -86,19 +98,38 @@ async function processEmailSend(job: EmailSendJob) {
     workspaceId: job.workspaceId,
     conversationId: job.conversationId,
   });
+
+  chatLog("info", "email_send_job_completed", {
+    purpose: job.purpose ?? "AGENT_REPLY",
+    workspaceId: job.workspaceId,
+    conversationId: job.conversationId,
+    customerEmail: job.customerEmail,
+    subject: job.subject,
+    outboundMessageId: outbound.messageId,
+    durationMs: Date.now() - startedAt,
+  });
 }
 
 async function processJob(job: Job<CcpJob>) {
+  const startedAt = Date.now();
+  chatLog("info", "queue_job_started", {
+    id: job.id,
+    kind: job.data.kind,
+    attemptsMade: job.attemptsMade,
+    conversationId: "conversationId" in job.data ? job.data.conversationId : undefined,
+    workspaceId: "workspaceId" in job.data ? job.data.workspaceId : undefined,
+  });
+
   switch (job.data.kind) {
     case "realtime.broadcast":
       await deliverConversationEvent(job.data);
-      return;
+      break;
     case "email.webhook":
       await deliverEmailWebhookEvent(job.data.event);
-      return;
+      break;
     case "email.send":
       await processEmailSend(job.data);
-      return;
+      break;
     case "ai.autoReply":
       await runAutoReplyWorkflow(job.data);
       await deliverConversationEvent({
@@ -106,8 +137,17 @@ async function processJob(job: Job<CcpJob>) {
         workspaceId: job.data.workspaceId,
         conversationId: job.data.conversationId,
       });
-      return;
+      break;
   }
+
+  chatLog("info", "queue_job_processed", {
+    id: job.id,
+    kind: job.data.kind,
+    attemptsMade: job.attemptsMade,
+    conversationId: "conversationId" in job.data ? job.data.conversationId : undefined,
+    workspaceId: "workspaceId" in job.data ? job.data.workspaceId : undefined,
+    durationMs: Date.now() - startedAt,
+  });
 }
 
 export async function startQueueWorker() {
@@ -117,6 +157,12 @@ export async function startQueueWorker() {
   }
 
   const concurrency = Number.parseInt(process.env.QUEUE_CONCURRENCY || "4", 10);
+  chatLog("info", "queue_worker_starting", {
+    queueName: CCP_QUEUE_NAME,
+    concurrency,
+    gmailSyncIntervalMs: process.env.GMAIL_SYNC_INTERVAL_MS || "60000",
+  });
+
   const worker = new Worker<CcpJob>(CCP_QUEUE_NAME, processJob, {
     connection,
     concurrency,
@@ -127,6 +173,9 @@ export async function startQueueWorker() {
     chatLog("info", "queue_job_completed", {
       id: job.id,
       kind: job.data.kind,
+      attemptsMade: job.attemptsMade,
+      conversationId: "conversationId" in job.data ? job.data.conversationId : undefined,
+      workspaceId: "workspaceId" in job.data ? job.data.workspaceId : undefined,
     });
   });
 
@@ -134,7 +183,11 @@ export async function startQueueWorker() {
     chatLog("error", "queue_job_failed", {
       id: job?.id,
       kind: job?.data.kind,
-      error: error.message,
+      attemptsMade: job?.attemptsMade,
+      failedReason: job?.failedReason,
+      conversationId: job?.data && "conversationId" in job.data ? job.data.conversationId : undefined,
+      workspaceId: job?.data && "workspaceId" in job.data ? job.data.workspaceId : undefined,
+      error: getErrorDetails(error),
     });
   });
 
@@ -145,6 +198,7 @@ export async function startQueueWorker() {
   const gmailSyncTimer =
     syncIntervalMs > 0
       ? setInterval(() => {
+          chatLog("debug", "gmail_poll_tick", { syncIntervalMs });
           void syncAllGmailInboxes(20)
             .then((results) => {
               const imported = results.reduce(

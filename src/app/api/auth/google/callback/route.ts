@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { serverEnv } from "@/lib/env";
 import { exchangeGoogleCode, getGoogleProfile, isGmailConfigured } from "@/modules/email/gmail";
+import { withApiLogging } from "@/modules/observability/api";
 
 const stateSecret = new TextEncoder().encode(serverEnv.JWT_ACCESS_SECRET);
 
@@ -21,7 +22,7 @@ function redirectToInbox(request: Request, params?: Record<string, string>) {
   return NextResponse.redirect(url);
 }
 
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -97,3 +98,5 @@ export async function GET(request: Request) {
     return redirectToInbox(request, { gmail: "failed" });
   }
 }
+
+export const GET = withApiLogging(GETHandler, "GET src/app/api/auth/google/callback");

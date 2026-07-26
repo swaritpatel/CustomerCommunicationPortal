@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
+import { withApiLogging } from "@/modules/observability/api";
 
 const allowedStatuses = ["OPEN", "SNOOZED", "RESOLVED"] as const;
 type EmailStatus = (typeof allowedStatuses)[number];
@@ -11,7 +12,7 @@ function isEmailStatus(value: string | undefined): value is EmailStatus {
   return allowedStatuses.some((status: EmailStatus) => status === value);
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const claims = await getSessionClaims();
     if (!claims) {
@@ -80,3 +81,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export const POST = withApiLogging(POSTHandler, "POST src/app/api/email/status");

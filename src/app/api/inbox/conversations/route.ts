@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
+import { withApiLogging } from "@/modules/observability/api";
 
 const FIRST_RESPONSE_TARGET_MINUTES = 15;
 const RESOLUTION_TARGET_HOURS = 24;
@@ -86,7 +87,7 @@ function buildSla(conversation: {
   };
 }
 
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   try {
     const claims = await getSessionClaims();
     if (!claims) {
@@ -234,3 +235,5 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export const GET = withApiLogging(GETHandler, "GET src/app/api/inbox/conversations");

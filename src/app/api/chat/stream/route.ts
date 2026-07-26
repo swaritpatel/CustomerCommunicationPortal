@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { readBearerToken, verifyVisitorToken } from "@/modules/chat/auth";
 import { chatLog } from "@/modules/chat/log";
+import { withApiLogging } from "@/modules/observability/api";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -119,7 +120,7 @@ function toFingerprint(snapshot: Awaited<ReturnType<typeof buildSnapshot>>) {
   });
 }
 
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   try {
     const actor = await resolveActor(request);
     if (!actor) {
@@ -299,3 +300,5 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export const GET = withApiLogging(GETHandler, "GET src/app/api/chat/stream");

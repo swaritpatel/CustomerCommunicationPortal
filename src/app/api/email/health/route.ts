@@ -3,8 +3,9 @@ import { NextResponse } from "next/server";
 import { serverEnv } from "@/lib/env";
 import { getSessionClaims } from "@/modules/auth/session";
 import { isSmtpConfigured } from "@/modules/email/smtp";
+import { withApiLogging } from "@/modules/observability/api";
 
-export async function GET() {
+async function GETHandler() {
   const claims = await getSessionClaims();
   if (!claims) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -31,3 +32,5 @@ export async function GET() {
     status: smtpReady && inboundSecretReady ? "ready" : "partial",
   });
 }
+
+export const GET = withApiLogging(GETHandler, "GET src/app/api/email/health");

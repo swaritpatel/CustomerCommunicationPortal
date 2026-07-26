@@ -42,6 +42,15 @@ async function sendAcknowledgement(input: {
   const references = [input.inReplyTo];
   const acknowledgementId = createHash("sha256").update(input.inReplyTo).digest("hex").slice(0, 16);
 
+  chatLog("info", "email_auto_ack_enqueue_started", {
+    workspaceId: input.workspaceId,
+    conversationId: input.conversationId,
+    customerEmail: input.customerEmail,
+    subject,
+    inReplyTo: input.inReplyTo,
+    acknowledgementId,
+  });
+
   const queued = await enqueueBackgroundJob({
     kind: "email.send",
     purpose: "AUTO_ACK",
@@ -57,6 +66,15 @@ async function sendAcknowledgement(input: {
     jobId: `email-auto-ack-${input.conversationId}-${acknowledgementId}`,
   });
 
+  chatLog("info", queued ? "email_auto_ack_enqueued" : "email_auto_ack_queue_unavailable", {
+    workspaceId: input.workspaceId,
+    conversationId: input.conversationId,
+    customerEmail: input.customerEmail,
+    subject,
+    inReplyTo: input.inReplyTo,
+    acknowledgementId,
+  });
+
   if (!queued) {
     const existingAutoAck = await db.emailMessageReference.findFirst({
       where: {
@@ -69,6 +87,11 @@ async function sendAcknowledgement(input: {
     });
 
     if (existingAutoAck) {
+      chatLog("info", "email_auto_ack_direct_duplicate_skipped", {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        inReplyTo: input.inReplyTo,
+      });
       return;
     }
 
@@ -129,8 +152,10 @@ function isUniqueConstraintError(error: unknown) {
 }
 
 export async function processInboundEmail(payload: unknown) {
+  const startedAt = Date.now();
   const normalized = normalizeInboundEmail(payload);
   if (!normalized) {
+    chatLog("warn", "email_inbound_invalid_payload");
     return { ok: false as const, status: 400, error: "Invalid payload" };
   }
 
@@ -138,8 +163,24 @@ export async function processInboundEmail(payload: unknown) {
     normalized.workspaceSlug || resolveWorkspaceSlugFromRecipient(normalized.recipient);
 
   if (!workspaceSlug) {
+    chatLog("warn", "email_inbound_workspace_slug_missing", {
+      recipient: normalized.recipient,
+      senderEmail: normalized.senderEmail,
+      subject: normalized.subject,
+      messageId: normalized.messageId,
+    });
     return { ok: false as const, status: 400, error: "workspace slug not found" };
   }
+
+  chatLog("info", "email_inbound_started", {
+    workspaceSlug,
+    recipient: normalized.recipient,
+    senderEmail: normalized.senderEmail,
+    subject: normalized.subject,
+    messageId: normalized.messageId,
+    inReplyTo: normalized.inReplyTo,
+    referencesCount: normalized.references.length,
+  });
 
   const workspace = await db.workspace.findUnique({
     where: { slug: workspaceSlug },
@@ -162,6 +203,12 @@ export async function processInboundEmail(payload: unknown) {
   });
 
   if (duplicateRef) {
+    chatLog("info", "email_inbound_duplicate_skipped", {
+      workspaceId: workspace.id,
+      conversationId: duplicateRef.conversationId,
+      messageId: normalized.messageId,
+      durationMs: Date.now() - startedAt,
+    });
     return {
       ok: true as const,
       duplicate: true,
@@ -208,8 +255,21 @@ export async function processInboundEmail(payload: unknown) {
       });
 
   if (!conversation) {
+    chatLog("warn", "email_inbound_conversation_missing", {
+      workspaceId: workspace.id,
+      existingConversationId: existingRef?.conversationId,
+      messageId: normalized.messageId,
+    });
     return { ok: false as const, status: 404, error: "Conversation not found" };
   }
+
+  chatLog("info", existingRef ? "email_inbound_thread_matched" : "email_inbound_conversation_created", {
+    workspaceId: workspace.id,
+    conversationId: conversation.id,
+    messageId: normalized.messageId,
+    inReplyTo: normalized.inReplyTo,
+    threadCandidatesCount: threadCandidates.length,
+  });
 
   try {
     await db.$transaction(async (tx: DbTransactionClient) => {
@@ -259,6 +319,13 @@ export async function processInboundEmail(payload: unknown) {
       select: { conversationId: true },
     });
 
+    chatLog("info", "email_inbound_duplicate_race_skipped", {
+      workspaceId: workspace.id,
+      conversationId: existing?.conversationId ?? conversation.id,
+      messageId: normalized.messageId,
+      durationMs: Date.now() - startedAt,
+    });
+
     return {
       ok: true as const,
       duplicate: true,
@@ -291,6 +358,14 @@ export async function processInboundEmail(payload: unknown) {
       conversationId: conversation.id,
       error: error instanceof Error ? error.message : "unknown_error",
     });
+  });
+
+  chatLog("info", "email_inbound_completed", {
+    workspaceId: workspace.id,
+    conversationId: conversation.id,
+    messageId: normalized.messageId,
+    subject: normalized.subject,
+    durationMs: Date.now() - startedAt,
   });
 
   return {

@@ -7,12 +7,13 @@ import { sendSupportEmail } from "@/modules/email/smtp";
 import { dispatchEmailWebhookEvent } from "@/modules/email/webhooks";
 import { enqueueBackgroundJob } from "@/modules/queue/enqueue";
 import { broadcastConversationEvent } from "@/modules/realtime/broadcast";
+import { withApiLogging } from "@/modules/observability/api";
 
 type EmailReferenceItem = {
   messageId: string;
 };
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const claims = await getSessionClaims();
     if (!claims) {
@@ -191,3 +192,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export const POST = withApiLogging(POSTHandler, "POST src/app/api/inbox/reply");

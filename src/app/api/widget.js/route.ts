@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import { withApiLogging } from "@/modules/observability/api";
 
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   const url = new URL(request.url);
   const script = `(function(){
   var currentScript = document.currentScript;
@@ -76,3 +77,5 @@ export async function GET(request: Request) {
     },
   });
 }
+
+export const GET = withApiLogging(GETHandler, "GET src/app/api/widget.js");

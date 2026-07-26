@@ -5,10 +5,11 @@ import { NextResponse } from "next/server";
 import { serverEnv } from "@/lib/env";
 import { getSessionClaims } from "@/modules/auth/session";
 import { buildGoogleAuthUrl, isGmailConfigured } from "@/modules/email/gmail";
+import { withApiLogging } from "@/modules/observability/api";
 
 const stateSecret = new TextEncoder().encode(serverEnv.JWT_ACCESS_SECRET);
 
-export async function GET() {
+async function GETHandler() {
   const claims = await getSessionClaims();
   if (!claims) {
     redirect("/login");
@@ -31,3 +32,5 @@ export async function GET() {
 
   return NextResponse.redirect(buildGoogleAuthUrl(state));
 }
+
+export const GET = withApiLogging(GETHandler, "GET src/app/api/auth/google/start");

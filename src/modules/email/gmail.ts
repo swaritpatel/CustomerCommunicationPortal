@@ -1,6 +1,8 @@
 import { db } from "@/lib/db";
 import { serverEnv } from "@/lib/env";
+import { chatLog } from "@/modules/chat/log";
 import { processInboundEmail } from "@/modules/email/process-inbound";
+import { getErrorDetails } from "@/modules/observability/log";
 
 const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -200,9 +202,17 @@ export async function syncGmailInbox(input: {
   email?: string;
   maxResults?: number;
 }) {
+  const startedAt = Date.now();
   if (!isGmailConfigured()) {
     throw new Error("Gmail OAuth is not configured");
   }
+
+  chatLog("info", "gmail_sync_started", {
+    workspaceId: input.workspaceId,
+    workspaceSlug: input.workspaceSlug,
+    email: input.email || serverEnv.GMAIL_SUPPORT_EMAIL,
+    maxResults: input.maxResults ?? 20,
+  });
 
   const integration = await db.gmailIntegration.findFirst({
     where: {
@@ -221,6 +231,14 @@ export async function syncGmailInbox(input: {
   const accessToken = await getIntegrationAccessToken(integration.id);
   const maxResults = String(input.maxResults ?? 20);
   const query = `in:inbox newer_than:30d -from:${integration.email}`;
+  chatLog("info", "gmail_sync_listing_messages", {
+    workspaceId: input.workspaceId,
+    integrationId: integration.id,
+    email: integration.email,
+    query,
+    maxResults,
+  });
+
   const list = await gmailFetch<{ messages?: { id: string }[] }>(
     accessToken,
     `messages?${new URLSearchParams({ maxResults, q: query }).toString()}`,
@@ -231,6 +249,12 @@ export async function syncGmailInbox(input: {
   let latestHistoryId = integration.historyId ?? null;
 
   for (const item of list.messages ?? []) {
+    chatLog("debug", "gmail_sync_fetching_message", {
+      workspaceId: input.workspaceId,
+      integrationId: integration.id,
+      gmailMessageId: item.id,
+    });
+
     const message = await gmailFetch<GmailMessage>(
       accessToken,
       `messages/${encodeURIComponent(item.id)}?format=full`,
@@ -252,6 +276,13 @@ export async function syncGmailInbox(input: {
 
     if (existing) {
       skipped += 1;
+      chatLog("debug", "gmail_sync_message_duplicate_skipped", {
+        workspaceId: input.workspaceId,
+        integrationId: integration.id,
+        gmailMessageId: message.id,
+        gmailThreadId: message.threadId,
+        messageId: messageId.replace(/^<|>$/g, ""),
+      });
       continue;
     }
 
@@ -271,8 +302,24 @@ export async function syncGmailInbox(input: {
 
     if (result.ok && !("duplicate" in result)) {
       imported += 1;
+      chatLog("info", "gmail_sync_message_imported", {
+        workspaceId: input.workspaceId,
+        integrationId: integration.id,
+        conversationId: result.conversationId,
+        gmailMessageId: message.id,
+        gmailThreadId: message.threadId,
+        messageId,
+      });
     } else {
       skipped += 1;
+      chatLog("info", "gmail_sync_message_skipped", {
+        workspaceId: input.workspaceId,
+        integrationId: integration.id,
+        gmailMessageId: message.id,
+        gmailThreadId: message.threadId,
+        messageId,
+        result,
+      });
     }
   }
 
@@ -284,6 +331,16 @@ export async function syncGmailInbox(input: {
     },
   });
 
+  chatLog("info", "gmail_sync_completed", {
+    workspaceId: input.workspaceId,
+    integrationId: integration.id,
+    email: integration.email,
+    imported,
+    skipped,
+    listed: list.messages?.length ?? 0,
+    durationMs: Date.now() - startedAt,
+  });
+
   return {
     email: integration.email,
     imported,
@@ -292,6 +349,7 @@ export async function syncGmailInbox(input: {
 }
 
 export async function syncAllGmailInboxes(maxResults = 20) {
+  const startedAt = Date.now();
   const integrations = await db.gmailIntegration.findMany({
     select: {
       workspaceId: true,
@@ -301,6 +359,11 @@ export async function syncAllGmailInboxes(maxResults = 20) {
       },
     },
     orderBy: { updatedAt: "asc" },
+  });
+
+  chatLog("info", "gmail_sync_all_started", {
+    integrations: integrations.length,
+    maxResults,
   });
 
   const results = [];
@@ -314,6 +377,11 @@ export async function syncAllGmailInboxes(maxResults = 20) {
       });
       results.push({ ok: true, ...result });
     } catch (error) {
+      chatLog("warn", "gmail_sync_integration_failed", {
+        workspaceId: integration.workspaceId,
+        email: integration.email,
+        error: getErrorDetails(error),
+      });
       results.push({
         ok: false,
         email: integration.email,
@@ -321,6 +389,12 @@ export async function syncAllGmailInboxes(maxResults = 20) {
       });
     }
   }
+
+  chatLog("info", "gmail_sync_all_completed", {
+    integrations: integrations.length,
+    results,
+    durationMs: Date.now() - startedAt,
+  });
 
   return results;
 }

@@ -5,8 +5,9 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { issueVisitorToken } from "@/modules/chat/auth";
 import { chatLog } from "@/modules/chat/log";
+import { withApiLogging } from "@/modules/observability/api";
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as
       | {
@@ -115,3 +116,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export const POST = withApiLogging(POSTHandler, "POST src/app/api/chat/bootstrap");

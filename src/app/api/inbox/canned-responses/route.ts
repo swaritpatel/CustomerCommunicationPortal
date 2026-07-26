@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
+import { withApiLogging } from "@/modules/observability/api";
 
 function isUniqueConstraintError(error: unknown) {
   return (
@@ -36,7 +37,7 @@ async function requireActiveWorkspaceMember() {
   return { claims };
 }
 
-export async function GET() {
+async function GETHandler() {
   try {
     const auth = await requireActiveWorkspaceMember();
     if ("error" in auth) {
@@ -63,7 +64,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const auth = await requireActiveWorkspaceMember();
     if ("error" in auth) {
@@ -108,7 +109,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+async function DELETEHandler(request: Request) {
   try {
     const auth = await requireActiveWorkspaceMember();
     if ("error" in auth) {
@@ -135,3 +136,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export const GET = withApiLogging(GETHandler, "GET src/app/api/inbox/canned-responses");
+export const POST = withApiLogging(POSTHandler, "POST src/app/api/inbox/canned-responses");
+export const DELETE = withApiLogging(DELETEHandler, "DELETE src/app/api/inbox/canned-responses");

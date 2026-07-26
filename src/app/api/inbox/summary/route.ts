@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
 import { summarizeConversation } from "@/modules/inbox/ai-summary";
+import { withApiLogging } from "@/modules/observability/api";
 
 type SummaryMessageItem = {
   senderType: "VISITOR" | "AGENT" | "SYSTEM";
@@ -12,7 +13,7 @@ type SummaryMessageItem = {
   senderUser: { fullName: string } | null;
 };
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const claims = await getSessionClaims();
     if (!claims) {
@@ -92,3 +93,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export const POST = withApiLogging(POSTHandler, "POST src/app/api/inbox/summary");
