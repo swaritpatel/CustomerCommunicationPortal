@@ -148,7 +148,7 @@ function readInitialChannelFilter(): ChannelFilter {
 
 function readInitialStatusFilter(): StatusFilter {
   const value = readInitialParam("status");
-  return value === "OPEN" || value === "SNOOZED" || value === "RESOLVED" || value === "ALL" ? value : "OPEN";
+  return value === "OPEN" || value === "SNOOZED" || value === "RESOLVED" || value === "ALL" ? value : "ALL";
 }
 
 function readInitialAssigneeFilter() {
