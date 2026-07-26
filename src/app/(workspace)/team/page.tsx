@@ -183,26 +183,31 @@ export default async function TeamPage() {
         <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
           <div className="space-y-6">
             <article id="members" className="card fade-up rounded-[2rem] p-6" style={{ animationDelay: "80ms" }}>
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="shrink-0">
                   <p className="eyebrow">Members</p>
                   <h2 className="mt-2 text-2xl font-extrabold tracking-[-0.04em]">Workspace access</h2>
                 </div>
 
                 {claims.role === "ADMIN" ? (
-                  <form action={inviteMemberAction} className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                  <form
+                    action={inviteMemberAction}
+                    className="grid w-full gap-3 sm:grid-cols-[minmax(0,1fr)_7rem] lg:max-w-[640px] lg:grid-cols-[minmax(260px,1fr)_7rem_10.5rem]"
+                  >
                     <input
                       name="email"
                       type="email"
                       required
-                      className="input min-w-[220px]"
+                      className="input h-14 min-w-0"
                       placeholder="teammate@company.com"
                     />
-                    <select name="role" className="input" defaultValue="AGENT">
-                      <option value="AGENT">Agent</option>
+                    <select name="role" className="input h-14 px-3" defaultValue="ADMIN" aria-label="Invite role">
                       <option value="ADMIN">Admin</option>
+                      <option value="AGENT">Agent</option>
                     </select>
-                    <button className="btn-primary" type="submit">Invite teammate</button>
+                    <button className="btn-primary h-14 whitespace-nowrap px-5 text-sm sm:col-span-2 lg:col-span-1" type="submit">
+                      Invite teammate
+                    </button>
                   </form>
                 ) : (
                   <span className="rounded-full border border-[var(--color-line)] px-4 py-2 text-sm text-[var(--color-muted)]">
