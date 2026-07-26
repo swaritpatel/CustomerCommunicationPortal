@@ -9,8 +9,22 @@ import { dispatchEmailWebhookEvent } from "@/modules/email/webhooks";
 import { findRelevantSupportPolicies } from "@/modules/policies/support-policies";
 import { enqueueBackgroundJob } from "@/modules/queue/enqueue";
 import { broadcastConversationEvent } from "@/modules/realtime/broadcast";
+import { generateUniqueTicketNumber } from "@/modules/tickets/ticket-number";
 
-function buildAcknowledgementText(input: { customerName: string | null }) {
+function withTicketReference(text: string, ticketNumber: string) {
+  if (text.includes(ticketNumber)) {
+    return text;
+  }
+
+  return [
+    text.trim(),
+    "",
+    `Ticket number: ${ticketNumber}`,
+    "Please keep this ticket number for future reference.",
+  ].join("\n");
+}
+
+function buildAcknowledgementText(input: { customerName: string | null; ticketNumber: string }) {
   const greetingName = input.customerName?.trim() || "there";
 
   return [
@@ -20,6 +34,9 @@ function buildAcknowledgementText(input: { customerName: string | null }) {
     "",
     "We have received your message and our support team is reviewing the details.",
     "We will follow up on this email thread with the next update as soon as possible.",
+    "",
+    `Ticket number: ${input.ticketNumber}`,
+    "Please keep this ticket number for future reference.",
     "",
     "Best,",
     "Cosmofeed Support",
@@ -34,11 +51,13 @@ async function sendAcknowledgement(input: {
   subject: string;
   inReplyTo: string;
   customerMessage: string;
+  ticketNumber: string;
 }) {
   const now = new Date();
   const subject = input.subject.startsWith("Re:") ? input.subject : `Re: ${input.subject}`;
   const fallbackText = buildAcknowledgementText({
     customerName: input.customerName,
+    ticketNumber: input.ticketNumber,
   });
   const aiAcknowledgement = await generateEmailAcknowledgement({
     workspaceId: input.workspaceId,
@@ -51,7 +70,7 @@ async function sendAcknowledgement(input: {
       text: `${input.subject}\n${input.customerMessage}`,
     }),
   });
-  const text = aiAcknowledgement?.text ?? fallbackText;
+  const text = aiAcknowledgement?.text ? withTicketReference(aiAcknowledgement.text, input.ticketNumber) : fallbackText;
   const shouldAutoResolve = Boolean(aiAcknowledgement?.shouldResolve);
   const references = [input.inReplyTo];
   const acknowledgementId = createHash("sha256").update(input.inReplyTo).digest("hex").slice(0, 16);
@@ -74,6 +93,7 @@ async function sendAcknowledgement(input: {
     subject,
     inReplyTo: input.inReplyTo,
     acknowledgementId,
+    ticketNumber: input.ticketNumber,
   });
 
   const queued = await enqueueBackgroundJob({
@@ -287,11 +307,12 @@ export async function processInboundEmail(payload: unknown) {
   const conversation = existingRef
     ? await db.conversation.findUnique({
         where: { id: existingRef.conversationId },
-        select: { id: true },
+        select: { id: true, ticketNumber: true },
       })
     : await db.conversation.create({
         data: {
           workspaceId: workspace.id,
+          ticketNumber: await generateUniqueTicketNumber({ workspaceId: workspace.id }),
           channel: "EMAIL",
           subject: normalized.subject,
           customerName: normalized.senderName,
@@ -299,7 +320,7 @@ export async function processInboundEmail(payload: unknown) {
           customerKey: normalized.messageId,
           status: "OPEN",
         },
-        select: { id: true },
+        select: { id: true, ticketNumber: true },
       });
 
   if (!conversation) {
@@ -314,13 +335,24 @@ export async function processInboundEmail(payload: unknown) {
   chatLog("info", existingRef ? "email_inbound_thread_matched" : "email_inbound_conversation_created", {
     workspaceId: workspace.id,
     conversationId: conversation.id,
+    ticketNumber: conversation.ticketNumber,
     messageId: normalized.messageId,
     inReplyTo: normalized.inReplyTo,
     threadCandidatesCount: threadCandidates.length,
   });
 
+  let ticketNumber = conversation.ticketNumber;
+
   try {
     await db.$transaction(async (tx: DbTransactionClient) => {
+      if (!ticketNumber) {
+        ticketNumber = await generateUniqueTicketNumber({ workspaceId: workspace.id, tx });
+        await tx.conversation.update({
+          where: { id: conversation.id },
+          data: { ticketNumber },
+        });
+      }
+
       await tx.emailMessageReference.create({
         data: {
           workspaceId: workspace.id,
@@ -401,6 +433,7 @@ export async function processInboundEmail(payload: unknown) {
     subject: normalized.subject,
     inReplyTo: normalized.messageId,
     customerMessage: normalized.textBody || normalized.htmlBody || "",
+    ticketNumber: ticketNumber!,
   }).catch((error) => {
     chatLog("warn", "email_auto_ack_failed", {
       workspaceId: workspace.id,

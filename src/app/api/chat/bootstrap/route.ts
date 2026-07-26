@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { issueVisitorToken } from "@/modules/chat/auth";
 import { chatLog } from "@/modules/chat/log";
 import { withApiLogging } from "@/modules/observability/api";
+import { generateUniqueTicketNumber } from "@/modules/tickets/ticket-number";
 
 async function POSTHandler(request: Request) {
   try {
@@ -44,7 +45,7 @@ async function POSTHandler(request: Request) {
         status: { not: "RESOLVED" },
       },
       orderBy: { updatedAt: "desc" },
-      select: { id: true },
+      select: { id: true, ticketNumber: true },
     });
 
     const conversation =
@@ -52,6 +53,7 @@ async function POSTHandler(request: Request) {
       (await db.conversation.create({
         data: {
           workspaceId: workspace.id,
+          ticketNumber: await generateUniqueTicketNumber({ workspaceId: workspace.id }),
           channel: "CHAT_WIDGET",
           subject: `${body.customerName?.trim() || "Website visitor"} · Live chat`,
           customerKey,
@@ -59,7 +61,7 @@ async function POSTHandler(request: Request) {
           customerEmail: body.customerEmail?.trim() || null,
           visitorLastSeenAt: now,
         },
-        select: { id: true },
+        select: { id: true, ticketNumber: true },
       }));
 
     await db.conversation.update({
@@ -104,6 +106,7 @@ async function POSTHandler(request: Request) {
     return NextResponse.json({
       workspace: { id: workspace.id, name: workspace.name, slug: body.workspaceSlug },
       conversationId: conversation.id,
+      ticketNumber: conversation.ticketNumber,
       customerKey,
       visitorToken,
       agentOnline: onlineAgents > 0,

@@ -11,6 +11,12 @@ const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.send",
 ];
 
+const GOOGLE_ACCOUNT_SCOPES = [
+  "openid",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+];
+
 type GoogleTokenResponse = {
   access_token?: string;
   expires_in?: number;
@@ -73,6 +79,25 @@ export function buildGoogleAuthUrl(state: string) {
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
+export function buildGoogleAccountAuthUrl(state: string) {
+  if (!isGmailConfigured()) {
+    throw new Error("Google OAuth is not configured");
+  }
+
+  const params = new URLSearchParams({
+    client_id: serverEnv.GOOGLE_CLIENT_ID!,
+    redirect_uri: serverEnv.GOOGLE_REDIRECT_URI!,
+    response_type: "code",
+    access_type: "online",
+    prompt: "select_account",
+    include_granted_scopes: "true",
+    scope: GOOGLE_ACCOUNT_SCOPES.join(" "),
+    state,
+  });
+
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+}
+
 export async function exchangeGoogleCode(code: string) {
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -124,6 +149,23 @@ export async function getGoogleProfile(accessToken: string) {
   }
 
   return (await response.json()) as { emailAddress: string; historyId?: string };
+}
+
+export async function getGoogleAccountProfile(accessToken: string) {
+  const response = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+    headers: { authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Google account profile fetch failed (${response.status})`);
+  }
+
+  return (await response.json()) as {
+    email?: string;
+    email_verified?: boolean;
+    name?: string;
+    given_name?: string;
+  };
 }
 
 async function getIntegrationAccessToken(integrationId: string) {

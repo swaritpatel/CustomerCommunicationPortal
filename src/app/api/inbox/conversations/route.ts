@@ -30,6 +30,7 @@ type InboxMemberItem = {
 
 type InboxConversationListItem = {
   id: string;
+  ticketNumber: string | null;
   createdAt: Date;
   updatedAt: Date;
   subject: string;
@@ -46,6 +47,15 @@ type InboxConversationListItem = {
 
 type AssigneeWhere = {
   currentAssigneeId?: string | null;
+};
+
+type SearchWhere = {
+  OR?: Array<{
+    ticketNumber?: { contains: string; mode: "insensitive" };
+    subject?: { contains: string; mode: "insensitive" };
+    customerName?: { contains: string; mode: "insensitive" };
+    customerEmail?: { contains: string; mode: "insensitive" };
+  }>;
 };
 
 function parseChannel(value: string | null): ConversationChannel | null {
@@ -119,6 +129,7 @@ async function GETHandler(request: Request) {
     const channel = parseChannel(params.get("channel"));
     const status = parseStatus(params.get("status"));
     const assignee = params.get("assignee");
+    const search = params.get("q")?.trim();
 
     const assigneeWhere: AssigneeWhere =
       assignee === "ME"
@@ -128,6 +139,17 @@ async function GETHandler(request: Request) {
           : assignee && assignee !== "ALL"
             ? { currentAssigneeId: assignee }
             : {};
+    const searchWhere: SearchWhere =
+      search && search.length >= 2
+        ? {
+            OR: [
+              { ticketNumber: { contains: search, mode: "insensitive" } },
+              { subject: { contains: search, mode: "insensitive" } },
+              { customerName: { contains: search, mode: "insensitive" } },
+              { customerEmail: { contains: search, mode: "insensitive" } },
+            ],
+          }
+        : {};
 
     const [conversations, members]: [InboxConversationListItem[], InboxMemberItem[]] = await Promise.all([
       db.conversation.findMany({
@@ -136,11 +158,13 @@ async function GETHandler(request: Request) {
           ...(channel ? { channel } : {}),
           ...(status ? { status } : {}),
           ...assigneeWhere,
+          ...searchWhere,
         },
         orderBy: { updatedAt: "desc" },
         take: 100,
         select: {
           id: true,
+          ticketNumber: true,
           createdAt: true,
           updatedAt: true,
           subject: true,
@@ -212,6 +236,7 @@ async function GETHandler(request: Request) {
 
         return {
           id: conversation.id,
+          ticketNumber: conversation.ticketNumber,
           subject: conversation.subject,
           channel: conversation.channel,
           customerName: conversation.customerName,

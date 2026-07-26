@@ -23,7 +23,21 @@ export function SignupForm() {
   const [state, action] = useActionState(signupAction, initialAuthActionState);
 
   return (
-    <form action={action} className="mt-8 space-y-4">
+    <div className="mt-8 space-y-4">
+      <a
+        className="flex w-full items-center justify-center rounded-[1.25rem] border border-[var(--color-line)] bg-white px-5 py-3 text-sm font-bold text-[var(--color-ink)] transition hover:border-[var(--color-line-strong)]"
+        href="/api/auth/google/account/start?mode=signup"
+      >
+        Continue with Google
+      </a>
+
+      <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-soft)]">
+        <span className="h-px flex-1 bg-[var(--color-line)]" />
+        or create with email
+        <span className="h-px flex-1 bg-[var(--color-line)]" />
+      </div>
+
+      <form action={action} className="space-y-4">
       <div>
         <label className="mb-2 block text-sm font-semibold" htmlFor="workspaceName">
           Workspace name
@@ -63,6 +77,7 @@ export function SignupForm() {
       ) : null}
 
       <SubmitButton idleLabel="Create workspace" pendingLabel="Creating workspace..." />
-    </form>
+      </form>
+    </div>
   );
 }

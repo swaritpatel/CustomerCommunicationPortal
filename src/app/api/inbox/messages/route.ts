@@ -22,6 +22,16 @@ type ContactHistoryItem = {
   visitorLastSeenAt: Date | null;
 };
 
+type CommentItem = {
+  id: string;
+  body: string;
+  createdAt: Date;
+  author: {
+    fullName: string;
+    email: string;
+  };
+};
+
 async function GETHandler(request: Request) {
   try {
     const claims = await getSessionClaims();
@@ -39,6 +49,7 @@ async function GETHandler(request: Request) {
       select: {
         id: true,
         workspaceId: true,
+        ticketNumber: true,
         channel: true,
         customerEmail: true,
         customerName: true,
@@ -78,7 +89,7 @@ async function GETHandler(request: Request) {
       }),
     ]);
 
-    const [messages, timeline, contactHistory]: [unknown, InboxTimelineItem[], ContactHistoryItem[]] = await Promise.all([
+    const [messages, comments, timeline, contactHistory]: [unknown, CommentItem[], InboxTimelineItem[], ContactHistoryItem[]] = await Promise.all([
       db.chatMessage.findMany({
         where: { conversationId: conversation.id },
         orderBy: { createdAt: "asc" },
@@ -94,6 +105,22 @@ async function GETHandler(request: Request) {
           senderUser: {
             select: {
               fullName: true,
+            },
+          },
+        },
+      }),
+      db.conversationComment.findMany({
+        where: { conversationId: conversation.id },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: {
+          id: true,
+          body: true,
+          createdAt: true,
+          author: {
+            select: {
+              fullName: true,
+              email: true,
             },
           },
         },
@@ -149,6 +176,8 @@ async function GETHandler(request: Request) {
 
     return NextResponse.json({
       messages,
+      ticketNumber: conversation.ticketNumber,
+      comments,
       contact: {
         name: conversation.customerName,
         email: conversation.customerEmail,
