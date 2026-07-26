@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
 import { buildAutoReplyDraft } from "@/modules/email/ai-draft";
+import { buildKnowledgeSearchOr, scoreKnowledgeArticle, tokenizeKnowledgeQuery } from "@/modules/kb/search";
 import { withApiLogging } from "@/modules/observability/api";
 import { findRelevantSupportPolicies } from "@/modules/policies/support-policies";
 
@@ -84,24 +85,22 @@ async function POSTHandler(request: Request) {
       text: `${conversation.subject}\n${latestCustomerMessage?.body ?? ""}`,
     });
     const articleQuery = cleanSearchText(`${conversation.subject} ${latestCustomerMessage?.body ?? ""}`);
+    const articleTokens = tokenizeKnowledgeQuery(articleQuery);
     const suggestedArticles =
-      articleQuery.length >= 3
+      articleTokens.length > 0
         ? await db.knowledgeBaseArticle.findMany({
             where: {
               workspaceId: conversation.workspaceId,
               status: "PUBLISHED",
-              OR: [
-                { title: { contains: articleQuery, mode: "insensitive" } },
-                { excerpt: { contains: articleQuery, mode: "insensitive" } },
-                { contentHtml: { contains: articleQuery, mode: "insensitive" } },
-              ],
+              OR: buildKnowledgeSearchOr(articleTokens),
             },
             orderBy: { updatedAt: "desc" },
-            take: 3,
+            take: 12,
             select: {
               title: true,
               slug: true,
               excerpt: true,
+              contentHtml: true,
             },
           })
         : [];
@@ -112,11 +111,19 @@ async function POSTHandler(request: Request) {
       recentMessages: messages,
       cannedResponses: Array.isArray(body?.cannedResponses) ? body.cannedResponses : [],
       supportPolicies,
-      suggestedArticles: suggestedArticles.map((article) => ({
-        title: article.title,
-        excerpt: article.excerpt,
-        href: `/help/${conversation.workspace.slug}?article=${article.slug}`,
-      })),
+      suggestedArticles: suggestedArticles
+        .map((article) => ({
+          ...article,
+          score: scoreKnowledgeArticle(article, articleTokens),
+        }))
+        .filter((article) => article.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+        .map((article) => ({
+          title: article.title,
+          excerpt: article.excerpt,
+          href: `/help/${conversation.workspace.slug}?article=${article.slug}`,
+        })),
     });
 
     return NextResponse.json({ draft });

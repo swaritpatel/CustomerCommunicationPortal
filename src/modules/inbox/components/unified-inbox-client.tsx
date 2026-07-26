@@ -232,6 +232,8 @@ export function UnifiedInboxClient() {
   const [isSending, setIsSending] = useState(false);
   const [isDrafting, setIsDrafting] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const [isCreatingKb, setIsCreatingKb] = useState(false);
+  const [kbMessage, setKbMessage] = useState<{ type: "success" | "error"; text: string; href?: string } | null>(null);
   const [isMutating, setIsMutating] = useState(false);
   const [isSavingCanned, setIsSavingCanned] = useState(false);
   const [cannedResponses, setCannedResponses] = useState<CannedResponse[]>(DEFAULT_CANNED_RESPONSES);
@@ -644,6 +646,42 @@ export function UnifiedInboxClient() {
     }
   };
 
+  const createKbArticle = async () => {
+    if (!activeId || isCreatingKb) {
+      return;
+    }
+
+    setIsCreatingKb(true);
+    setKbMessage(null);
+    try {
+      const response = await fetch("/api/kb/from-conversation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversationId: activeId }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { article?: { title?: string; href?: string }; error?: string }
+        | null;
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Could not create article");
+      }
+
+      setKbMessage({
+        type: "success",
+        text: payload?.article?.title ? `Published: ${payload.article.title}` : "Knowledge article published.",
+        href: payload?.article?.href,
+      });
+    } catch (error) {
+      setKbMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "Could not create article",
+      });
+    } finally {
+      setIsCreatingKb(false);
+    }
+  };
+
   const insertCanned = (body: string) => {
     setText((current) => (current.trim().length > 0 ? `${current}\n\n${body}` : body));
   };
@@ -1000,6 +1038,35 @@ export function UnifiedInboxClient() {
                 {isSummarizing ? "Generating the latest issue summary..." : "Open a conversation with messages to generate a summary."}
               </p>
             )}
+          </article>
+
+          <article className="card rounded-[2rem] p-5">
+            <p className="eyebrow">Knowledge base</p>
+            <h3 className="mt-1 text-lg font-extrabold tracking-[-0.03em]">Learn from this issue</h3>
+            <p className="mt-2 text-xs leading-5 text-[var(--color-muted)]">
+              Generate a published article from the current thread so similar future messages can surface it automatically.
+            </p>
+            <button
+              className="btn-secondary mt-4 w-full"
+              disabled={!activeConversation || messages.length === 0 || isCreatingKb}
+              onClick={() => void createKbArticle()}
+            >
+              {isCreatingKb ? "Creating..." : "Create article from issue"}
+            </button>
+            {kbMessage ? (
+              <div className={`mt-3 rounded-2xl border px-3 py-2 text-xs leading-5 ${
+                kbMessage.type === "success"
+                  ? "border-[rgba(24,128,86,0.24)] bg-[rgba(24,128,86,0.08)] text-[rgb(20,96,67)]"
+                  : "border-[rgba(224,75,54,0.28)] bg-[rgba(224,75,54,0.08)] text-[rgb(150,45,32)]"
+              }`}>
+                {kbMessage.text}
+                {kbMessage.href ? (
+                  <a className="mt-1 block font-bold underline" href={kbMessage.href} target="_blank" rel="noreferrer">
+                    Open public article
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
           </article>
 
           <article className="card rounded-[2rem] p-5">
