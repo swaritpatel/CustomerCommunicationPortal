@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { serverEnv } from "@/lib/env";
 import { chatLog } from "@/modules/chat/log";
+import { scoreKnowledgeArticle, tokenizeKnowledgeQuery } from "@/modules/kb/search";
 import { toWorkspaceSlug } from "@/modules/workspaces/slug";
 
 type ConversationMessage = {
@@ -83,6 +84,82 @@ async function generateUniqueSlug(input: { workspaceId: string; title: string })
   }
 
   return `${base}-${crypto.randomUUID().slice(0, 6)}`;
+}
+
+function articleSearchText(input: { title: string; excerpt: string | null; contentHtml: string }) {
+  return [input.title, input.excerpt ?? "", stripTags(input.contentHtml)].join(" ");
+}
+
+async function findDuplicateArticle(input: {
+  workspaceId: string;
+  title: string;
+  excerpt: string | null;
+  contentHtml: string;
+}) {
+  const slug = toWorkspaceSlug(input.title);
+  if (slug) {
+    const exactSlug = await db.knowledgeBaseArticle.findUnique({
+      where: {
+        workspaceId_slug: {
+          workspaceId: input.workspaceId,
+          slug,
+        },
+      },
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        excerpt: true,
+        status: true,
+      },
+    });
+
+    if (exactSlug) {
+      return exactSlug;
+    }
+  }
+
+  const tokens = tokenizeKnowledgeQuery(articleSearchText(input), 10);
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  const candidates = await db.knowledgeBaseArticle.findMany({
+    where: {
+      workspaceId: input.workspaceId,
+      OR: tokens.flatMap((token) => [
+        { title: { contains: token, mode: "insensitive" as const } },
+        { excerpt: { contains: token, mode: "insensitive" as const } },
+        { contentHtml: { contains: token, mode: "insensitive" as const } },
+      ]),
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 20,
+    select: {
+      id: true,
+      title: true,
+      slug: true,
+      excerpt: true,
+      contentHtml: true,
+      status: true,
+    },
+  });
+
+  const scored = candidates
+    .map((article) => ({
+      ...article,
+      score: scoreKnowledgeArticle(article, tokens),
+    }))
+    .sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  const strongTitleOverlap =
+    best && tokenizeKnowledgeQuery(best.title, 8).filter((token) => tokens.includes(token)).length >= 3;
+
+  if (best && (best.score >= 14 || strongTitleOverlap)) {
+    return best;
+  }
+
+  return null;
 }
 
 function fallbackArticle(input: {
@@ -274,6 +351,35 @@ export async function createKnowledgeArticleFromConversation(input: {
     customerName: conversation.customerName,
     messages: conversation.messages,
   });
+  const duplicate = await findDuplicateArticle({
+    workspaceId: conversation.workspaceId,
+    title: generated.title,
+    excerpt: generated.excerpt,
+    contentHtml: generated.contentHtml,
+  });
+
+  if (duplicate) {
+    chatLog("info", "kb_article_duplicate_skipped", {
+      workspaceId: conversation.workspaceId,
+      conversationId: conversation.id,
+      articleId: duplicate.id,
+      slug: duplicate.slug,
+      status: duplicate.status,
+    });
+
+    return {
+      ok: true as const,
+      reused: true as const,
+      article: {
+        id: duplicate.id,
+        title: duplicate.title,
+        slug: duplicate.slug,
+        excerpt: duplicate.excerpt,
+        href: buildPublicHelpArticleUrl(conversation.workspace.slug, duplicate.slug),
+      },
+    };
+  }
+
   const slug = await generateUniqueSlug({
     workspaceId: conversation.workspaceId,
     title: generated.title,

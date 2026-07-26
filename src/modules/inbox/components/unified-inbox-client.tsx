@@ -665,7 +665,7 @@ export function UnifiedInboxClient() {
         body: JSON.stringify({ conversationId: activeId }),
       });
       const payload = (await response.json().catch(() => null)) as
-        | { article?: { title?: string; href?: string }; error?: string }
+        | { article?: { title?: string; href?: string }; reused?: boolean; error?: string }
         | null;
 
       if (!response.ok) {
@@ -674,7 +674,11 @@ export function UnifiedInboxClient() {
 
       setKbMessage({
         type: "success",
-        text: payload?.article?.title ? `Published: ${payload.article.title}` : "Knowledge article published.",
+        text: payload?.reused
+          ? `Already exists: ${payload.article?.title ?? "Knowledge article"}`
+          : payload?.article?.title
+            ? `Published: ${payload.article.title}`
+            : "Knowledge article published.",
         href: payload?.article?.href,
       });
     } catch (error) {

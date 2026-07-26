@@ -44,7 +44,7 @@ async function POSTHandler(request: Request) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
 
-    return NextResponse.json({ ok: true, article: result.article });
+    return NextResponse.json({ ok: true, article: result.article, reused: "reused" in result ? result.reused : false });
   } catch (error) {
     chatLog("error", "kb_from_conversation_failed", {
       error: error instanceof Error ? error.message : "unknown_error",
