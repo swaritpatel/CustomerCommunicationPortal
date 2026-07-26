@@ -61,7 +61,7 @@ const DEFAULT_CANNED_RESPONSES: CannedResponse[] = [
   {
     id: "ack-1",
     tag: "acknowledgement",
-    body: "Thanks for reaching out. We have received your message and are looking into it now.",
+    body: "We have received your request. Our support team is reviewing it now and will get back to you with the next steps shortly.",
   },
   {
     id: "followup-1",
