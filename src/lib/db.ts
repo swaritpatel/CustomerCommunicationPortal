@@ -16,7 +16,11 @@ export const db =
     log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
   });
 
+export type DbTransactionClient = Omit<
+  typeof db,
+  "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
+>;
+
 if (process.env.NODE_ENV !== "production") {
   globalThis.prisma = db;
 }
-

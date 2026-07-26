@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
 
-import { db } from "@/lib/db";
+import { db, type DbTransactionClient } from "@/lib/db";
 import { serverEnv } from "@/lib/env";
 import { normalizeInboundEmail, resolveWorkspaceSlugFromRecipient } from "@/modules/email/inbound";
 import { dispatchEmailWebhookEvent } from "@/modules/email/webhooks";
@@ -88,7 +87,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
     }
 
-    await db.$transaction(async (tx: Prisma.TransactionClient) => {
+    await db.$transaction(async (tx: DbTransactionClient) => {
       await tx.chatMessage.create({
         data: {
           workspaceId: workspace.id,

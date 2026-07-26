@@ -1,9 +1,8 @@
 "use server";
 
-import { Prisma } from "@prisma/client";
 import { redirect } from "next/navigation";
 
-import { db } from "@/lib/db";
+import { db, type DbTransactionClient } from "@/lib/db";
 import type { AuthActionState } from "@/modules/auth/form-state";
 import { loginSchema, signupSchema } from "@/modules/auth/schemas";
 import { hashPassword, verifyPassword } from "@/modules/auth/password";
@@ -21,6 +20,15 @@ function errorState(message: string, fieldErrors?: Record<string, string[]>) {
     message,
     fieldErrors,
   } satisfies AuthActionState;
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
 }
 
 async function generateUniqueWorkspaceSlug(name: string) {
@@ -60,7 +68,7 @@ export async function signupAction(
   const passwordHash = await hashPassword(parsedInput.data.password);
 
   try {
-    const result = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+    const result = await db.$transaction(async (tx: DbTransactionClient) => {
       const user = await tx.user.create({
         data: {
           fullName: parsedInput.data.fullName,
@@ -122,8 +130,7 @@ export async function signupAction(
     });
   } catch (error) {
     if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === "P2002"
+      isUniqueConstraintError(error)
     ) {
       return errorState(
         "We could not create this account. If you already have access, log in instead.",

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import type { ConversationChannel, ConversationStatus, Prisma } from "@prisma/client";
+import type { ConversationChannel, ConversationStatus } from "@prisma/client";
 
 import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
@@ -39,6 +39,10 @@ type InboxConversationListItem = {
   currentAssignee: { id: string; fullName: string; email: string } | null;
   messages: Array<{ body: string; senderType: string; createdAt: Date }>;
   _count: { messages: number };
+};
+
+type AssigneeWhere = {
+  currentAssigneeId?: string | null;
 };
 
 function parseChannel(value: string | null): ConversationChannel | null {
@@ -111,7 +115,7 @@ export async function GET(request: Request) {
     const status = parseStatus(params.get("status"));
     const assignee = params.get("assignee");
 
-    const assigneeWhere: Prisma.ConversationWhereInput =
+    const assigneeWhere: AssigneeWhere =
       assignee === "ME"
         ? { currentAssigneeId: claims.sub }
         : assignee === "UNASSIGNED"
@@ -127,7 +131,7 @@ export async function GET(request: Request) {
           ...(channel ? { channel } : {}),
           ...(status ? { status } : {}),
           ...assigneeWhere,
-        } satisfies Prisma.ConversationWhereInput,
+        },
         orderBy: { updatedAt: "desc" },
         take: 100,
         select: {

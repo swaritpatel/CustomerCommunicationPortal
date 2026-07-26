@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
 
-import { db } from "@/lib/db";
+import { db, type DbTransactionClient } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
 
@@ -72,7 +71,7 @@ export async function POST(request: Request) {
           ? "UNASSIGNED"
           : "REASSIGNED";
 
-    await db.$transaction(async (tx: Prisma.TransactionClient) => {
+    await db.$transaction(async (tx: DbTransactionClient) => {
       await tx.conversation.update({
         where: { id: conversation.id },
         data: {
