@@ -6,7 +6,6 @@ import { db } from "@/lib/db";
 import { issueVisitorToken } from "@/modules/chat/auth";
 import { chatLog } from "@/modules/chat/log";
 import { withApiLogging } from "@/modules/observability/api";
-import { generateUniqueTicketNumber } from "@/modules/tickets/ticket-number";
 
 async function POSTHandler(request: Request) {
   try {
@@ -53,7 +52,6 @@ async function POSTHandler(request: Request) {
       (await db.conversation.create({
         data: {
           workspaceId: workspace.id,
-          ticketNumber: await generateUniqueTicketNumber({ workspaceId: workspace.id }),
           channel: "CHAT_WIDGET",
           subject: `${body.customerName?.trim() || "Website visitor"} · Live chat`,
           customerKey,

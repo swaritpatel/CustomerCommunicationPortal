@@ -557,6 +557,7 @@ export function WidgetChatClient({ previewMode = false }: { previewMode?: boolea
     lastMessage?.senderType !== "VISITOR" &&
     !isClarifyingSupportMessage(lastMessage) &&
     hasSubstantiveVisitorIssue();
+  const visibleTicketNumber = hasSubstantiveVisitorIssue() ? ticketNumber : "";
 
   const sendResolutionFeedback = async (resolved: boolean) => {
     if (!conversationId || !visitorToken || resolutionSubmitting) {
@@ -672,7 +673,7 @@ export function WidgetChatClient({ previewMode = false }: { previewMode?: boolea
               <span className={`status-dot ${meta.agentOnline ? "online" : "offline"}`} />
               {meta.agentOnline ? "Team online now" : "AI answers instantly"}
             </p>
-            {ticketNumber ? <p className="ticket-line">Ticket {ticketNumber}</p> : null}
+            {visibleTicketNumber ? <p className="ticket-line">Ticket {visibleTicketNumber}</p> : null}
           </div>
         </div>
         <button

@@ -3,7 +3,7 @@ import { QueueEvents, Worker, type Job } from "bullmq";
 import { db } from "@/lib/db";
 import { runAutoReplyWorkflow } from "@/modules/chat/auto-reply";
 import { chatLog } from "@/modules/chat/log";
-import { syncAllGmailInboxes } from "@/modules/email/gmail";
+import { renewAllGmailWatches, syncAllGmailInboxes } from "@/modules/email/gmail";
 import { sendWorkspaceSupportEmail } from "@/modules/email/send";
 import { deliverEmailWebhookEvent } from "@/modules/email/webhooks";
 import { getErrorDetails } from "@/modules/observability/log";
@@ -199,6 +199,7 @@ export async function startQueueWorker() {
     queueName: CCP_QUEUE_NAME,
     concurrency,
     gmailSyncIntervalMs: process.env.GMAIL_SYNC_INTERVAL_MS || "60000",
+    gmailWatchRenewIntervalMs: process.env.GMAIL_WATCH_RENEW_INTERVAL_MS || "21600000",
   });
 
   const worker = new Worker<CcpJob>(CCP_QUEUE_NAME, processJob, {
@@ -255,12 +256,34 @@ export async function startQueueWorker() {
         }, syncIntervalMs)
       : null;
 
+  const watchRenewIntervalMs = Number.parseInt(process.env.GMAIL_WATCH_RENEW_INTERVAL_MS || "21600000", 10);
+  const gmailWatchRenewTimer =
+    watchRenewIntervalMs > 0
+      ? setInterval(() => {
+          chatLog("debug", "gmail_watch_renew_tick", { watchRenewIntervalMs });
+          void renewAllGmailWatches().catch((error) => {
+            chatLog("warn", "gmail_watch_renew_tick_failed", {
+              error: error instanceof Error ? error.message : "unknown_error",
+            });
+          });
+        }, watchRenewIntervalMs)
+      : null;
+
+  void renewAllGmailWatches().catch((error) => {
+    chatLog("warn", "gmail_watch_initial_renew_failed", {
+      error: error instanceof Error ? error.message : "unknown_error",
+    });
+  });
+
   return {
     worker,
     events,
     async close() {
       if (gmailSyncTimer) {
         clearInterval(gmailSyncTimer);
+      }
+      if (gmailWatchRenewTimer) {
+        clearInterval(gmailWatchRenewTimer);
       }
       await Promise.allSettled([worker.close(), events.close()]);
     },

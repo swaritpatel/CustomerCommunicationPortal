@@ -24,6 +24,9 @@ const serverEnvSchema = z.object({
   GOOGLE_REDIRECT_URI: z.url().optional(),
   GMAIL_SUPPORT_EMAIL: z.email().optional(),
   GMAIL_SYNC_INTERVAL_MS: z.coerce.number().int().positive().optional(),
+  GMAIL_PUBSUB_TOPIC: z.string().optional(),
+  GMAIL_PUSH_WEBHOOK_SECRET: z.string().optional(),
+  GMAIL_WATCH_RENEW_INTERVAL_MS: z.coerce.number().int().positive().optional(),
   AI_CHAT_MODE: z
     .union([z.literal("off"), z.literal("assist"), z.literal("autoreply")])
     .optional()
@@ -65,6 +68,9 @@ export const serverEnv = serverEnvSchema.parse({
   GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
   GMAIL_SUPPORT_EMAIL: process.env.GMAIL_SUPPORT_EMAIL,
   GMAIL_SYNC_INTERVAL_MS: process.env.GMAIL_SYNC_INTERVAL_MS,
+  GMAIL_PUBSUB_TOPIC: process.env.GMAIL_PUBSUB_TOPIC,
+  GMAIL_PUSH_WEBHOOK_SECRET: process.env.GMAIL_PUSH_WEBHOOK_SECRET,
+  GMAIL_WATCH_RENEW_INTERVAL_MS: process.env.GMAIL_WATCH_RENEW_INTERVAL_MS,
   AI_CHAT_MODE: process.env.AI_CHAT_MODE,
   AI_PROVIDER: process.env.AI_PROVIDER,
   AI_API_KEY: process.env.AI_API_KEY,

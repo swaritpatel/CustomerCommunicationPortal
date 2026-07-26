@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { generatePolicyAwareReply } from "@/modules/chat/agent-reply";
 import { chatLog } from "@/modules/chat/log";
 import { findRelevantSupportPolicies } from "@/modules/policies/support-policies";
+import { generateUniqueTicketNumber } from "@/modules/tickets/ticket-number";
 
 type RecentChatMessage = {
   senderType: "VISITOR" | "AGENT" | "SYSTEM";
@@ -65,6 +66,18 @@ function isClarifyingReply(body: string) {
   ].some((phrase) => normalized.includes(phrase));
 }
 
+function isSubstantiveVisitorIssue(body: string) {
+  const normalized = body.trim().toLowerCase();
+
+  if (normalized.length >= 18) {
+    return true;
+  }
+
+  return /\b(refund|cancel|cancelled|canceled|order|payment|delivery|delivered|login|account|error|issue|problem|not received|failed|broken|help|invoice|billing|subscription)\b/.test(
+    normalized,
+  );
+}
+
 export async function runAutoReplyWorkflow(input: {
   conversationId: string;
   workspaceId: string;
@@ -90,13 +103,13 @@ export async function runAutoReplyWorkflow(input: {
   });
 
   try {
-    const [conversation, recentMessages]: [
-      { ticketNumber: string | null } | null,
+    const [initialConversation, recentMessages]: [
+      { id: string; workspaceId: string; ticketNumber: string | null } | null,
       RecentChatMessage[],
     ] = await Promise.all([
       db.conversation.findUnique({
         where: { id: input.conversationId },
-        select: { ticketNumber: true },
+        select: { id: true, workspaceId: true, ticketNumber: true },
       }),
       db.chatMessage.findMany({
         where: { conversationId: input.conversationId },
@@ -111,11 +124,21 @@ export async function runAutoReplyWorkflow(input: {
         },
       }),
     ]);
+    let conversation = initialConversation;
 
     const priorSupportReplyCount = recentMessages.filter(
       (message) => message.senderType === "AGENT" || message.senderType === "SYSTEM",
     ).length;
-    const shouldIncludeTicket = priorSupportReplyCount === 0;
+    const shouldCreateOrIncludeTicket = priorSupportReplyCount === 0 && isSubstantiveVisitorIssue(input.latestVisitorText);
+
+    if (conversation && shouldCreateOrIncludeTicket && !conversation.ticketNumber) {
+      const ticketNumber = await generateUniqueTicketNumber({ workspaceId: conversation.workspaceId });
+      conversation = await db.conversation.update({
+        where: { id: conversation.id },
+        data: { ticketNumber },
+        select: { id: true, workspaceId: true, ticketNumber: true },
+      });
+    }
 
     const supportPolicies = await findRelevantSupportPolicies({
       workspaceId: input.workspaceId,
@@ -152,9 +175,9 @@ export async function runAutoReplyWorkflow(input: {
         ? withTicketReference(
             aiReply.body,
             conversation?.ticketNumber ?? null,
-            shouldIncludeTicket && !isClarifyingReply(aiReply.body),
+            shouldCreateOrIncludeTicket && !isClarifyingReply(aiReply.body),
           )
-        : buildFallbackReply(conversation?.ticketNumber ?? null);
+        : buildFallbackReply(shouldCreateOrIncludeTicket ? conversation?.ticketNumber ?? null : null);
 
     const remainingTypingMs = 1_000 - (Date.now() - typingStartedAt);
     if (remainingTypingMs > 0) {

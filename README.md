@@ -49,7 +49,7 @@ Note: `/widget/chat?workspace=pinelabs` is supported in the latest code as a com
 ## What Is Skipped Or Simplified
 
 - Production-grade custom-domain SSL provisioning is modeled but not fully automated.
-- Gmail sync currently uses polling/manual sync rather than Gmail push notifications.
+- Gmail supports Pub/Sub push notifications when configured, with polling/manual sync kept as a fallback.
 - Email sending uses SMTP provider credentials rather than a dedicated transactional email SDK.
 - Advanced permissions are limited to `ADMIN` and `AGENT`.
 - AI safety is prompt/policy based; there is no full moderation pipeline.
@@ -70,7 +70,7 @@ Note: `/widget/chat?workspace=pinelabs` is supported in the latest code as a com
 | Background jobs | BullMQ | Email sends, auto-acks, queueable background tasks |
 | Worker runtime | `tsx` Node worker | Long-lived queue worker on Render |
 | Auth crypto | `jose`, `bcryptjs` | JWT/session token signing and password hashing |
-| Email sync | Gmail OAuth + Gmail API | Pull support inbox messages into the unified inbox |
+| Email sync | Gmail OAuth + Gmail API + optional Pub/Sub push | Pull support inbox messages into the unified inbox |
 | Email send | Nodemailer + Brevo SMTP | Send support replies and acknowledgements |
 | AI primary | OpenAI-compatible Chat Completions | Drafts, summaries, acknowledgements, chat replies |
 | AI fallback 1 | Gemini API | Backup model if OpenAI-compatible provider fails |
@@ -90,6 +90,7 @@ Note: `/widget/chat?workspace=pinelabs` is supported in the latest code as a com
 | Upstash Redis | Redis adapter for Socket.IO and BullMQ queue backing |
 | Google Cloud OAuth | Connects `support.cosmofeed@gmail.com` through Gmail OAuth |
 | Gmail API | Syncs inbound support email messages and thread metadata |
+| Google Pub/Sub | Optional Gmail push notification transport that triggers near-real-time sync |
 | Brevo SMTP | Sends outbound support emails and acknowledgements |
 | OpenAI API | Primary AI provider |
 | Gemini API | First AI fallback provider |
@@ -664,6 +665,9 @@ GOOGLE_CLIENT_SECRET="replace-with-google-client-secret"
 GOOGLE_REDIRECT_URI="http://localhost:3000/api/auth/google/callback"
 GMAIL_SUPPORT_EMAIL="support@example.com"
 GMAIL_SYNC_INTERVAL_MS="30000"
+GMAIL_PUBSUB_TOPIC="projects/your-google-project-id/topics/gmail-inbox-updates"
+GMAIL_PUSH_WEBHOOK_SECRET="replace-with-random-push-secret"
+GMAIL_WATCH_RENEW_INTERVAL_MS="21600000"
 ```
 
 Secret handling:
@@ -672,6 +676,21 @@ Secret handling:
 - Rotate any key that has been pasted into chat, screenshots, or logs.
 - Use separate production secrets in Vercel and Render.
 - Do not place real keys in README, commits, issues, or PR descriptions.
+
+### Gmail Push Notifications
+
+Polling works with only Gmail OAuth. For lower latency, configure Gmail push notifications:
+
+1. Enable **Gmail API** and **Pub/Sub API** in Google Cloud.
+2. Create a Pub/Sub topic, for example:
+   `projects/your-google-project-id/topics/gmail-inbox-updates`
+3. Grant `gmail-api-push@system.gserviceaccount.com` the `Pub/Sub Publisher` role on that topic.
+4. Create a Pub/Sub push subscription targeting:
+   `https://customer-communication-portal.vercel.app/api/email/gmail/push?secret=<GMAIL_PUSH_WEBHOOK_SECRET>`
+5. Set `GMAIL_PUBSUB_TOPIC` and `GMAIL_PUSH_WEBHOOK_SECRET` in Vercel and the worker environment.
+6. Reconnect Gmail from the inbox page, or wait for the worker watch renewal. The app calls Gmail `users.watch` and then uses existing sync/import logic when Pub/Sub notifications arrive.
+
+Polling remains enabled through `GMAIL_SYNC_INTERVAL_MS` as a fallback.
 
 ### Run Locally
 

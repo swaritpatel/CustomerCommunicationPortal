@@ -8,10 +8,12 @@ import { issueSession } from "@/modules/auth/session";
 import { acceptInviteForUser } from "@/modules/team/invites";
 import {
   exchangeGoogleCode,
+  ensureGmailWatch,
   getGoogleAccountProfile,
   getGoogleProfile,
   isGmailConfigured,
 } from "@/modules/email/gmail";
+import { chatLog } from "@/modules/chat/log";
 import { withApiLogging } from "@/modules/observability/api";
 import { toWorkspaceSlug } from "@/modules/workspaces/slug";
 
@@ -316,7 +318,7 @@ async function GETHandler(request: Request) {
       return redirectToInbox(request, { gmail: "missing_refresh_token" });
     }
 
-    await db.gmailIntegration.upsert({
+    const integration = await db.gmailIntegration.upsert({
       where: {
         workspaceId_email: {
           workspaceId: payload.workspaceId,
@@ -337,6 +339,24 @@ async function GETHandler(request: Request) {
         expiresAt: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null,
         historyId: profile.historyId || undefined,
       },
+      select: {
+        id: true,
+        workspaceId: true,
+        email: true,
+      },
+    });
+
+    await ensureGmailWatch({
+      integrationId: integration.id,
+      workspaceId: integration.workspaceId,
+      email: integration.email,
+    }).catch((watchError) => {
+      chatLog("warn", "gmail_watch_after_oauth_failed", {
+        workspaceId: integration.workspaceId,
+        integrationId: integration.id,
+        email: integration.email,
+        error: watchError instanceof Error ? watchError.message : "unknown_error",
+      });
     });
 
     return redirectToInbox(request, { gmail: "connected" });

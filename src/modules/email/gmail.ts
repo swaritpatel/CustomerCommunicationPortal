@@ -52,6 +52,11 @@ type GmailSendResponse = {
   threadId?: string;
 };
 
+type GmailWatchResponse = {
+  historyId?: string;
+  expiration?: string;
+};
+
 export function isGmailConfigured() {
   return Boolean(
     serverEnv.GOOGLE_CLIENT_ID &&
@@ -199,6 +204,142 @@ async function getIntegrationAccessToken(integrationId: string) {
   });
 
   return refreshed.access_token!;
+}
+
+export function isGmailPushConfigured() {
+  return Boolean(serverEnv.GMAIL_PUBSUB_TOPIC);
+}
+
+export async function ensureGmailWatch(input: {
+  integrationId: string;
+  workspaceId: string;
+  email: string;
+}) {
+  if (!serverEnv.GMAIL_PUBSUB_TOPIC) {
+    chatLog("debug", "gmail_watch_skipped_not_configured", {
+      workspaceId: input.workspaceId,
+      integrationId: input.integrationId,
+      email: input.email,
+    });
+    return { ok: false as const, reason: "not_configured" };
+  }
+
+  const accessToken = await getIntegrationAccessToken(input.integrationId);
+  const startedAt = Date.now();
+
+  chatLog("info", "gmail_watch_started", {
+    workspaceId: input.workspaceId,
+    integrationId: input.integrationId,
+    email: input.email,
+    topicName: serverEnv.GMAIL_PUBSUB_TOPIC,
+  });
+
+  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/watch", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      topicName: serverEnv.GMAIL_PUBSUB_TOPIC,
+      labelIds: ["INBOX"],
+      labelFilterBehavior: "INCLUDE",
+    }),
+  });
+
+  const payload = (await response.json().catch(() => null)) as
+    | GmailWatchResponse
+    | { error?: { message?: string } }
+    | null;
+
+  if (!response.ok) {
+    const message =
+      payload && "error" in payload && payload.error?.message
+        ? payload.error.message
+        : `Gmail watch failed (${response.status})`;
+    chatLog("error", "gmail_watch_failed", {
+      workspaceId: input.workspaceId,
+      integrationId: input.integrationId,
+      email: input.email,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+      error: message,
+    });
+    throw new Error(message);
+  }
+
+  await db.gmailIntegration.update({
+    where: { id: input.integrationId },
+    data: {
+      historyId: payload && "historyId" in payload ? payload.historyId || undefined : undefined,
+    },
+  });
+
+  chatLog("info", "gmail_watch_completed", {
+    workspaceId: input.workspaceId,
+    integrationId: input.integrationId,
+    email: input.email,
+    historyId: payload && "historyId" in payload ? payload.historyId : undefined,
+    expiration: payload && "expiration" in payload ? payload.expiration : undefined,
+    durationMs: Date.now() - startedAt,
+  });
+
+  return {
+    ok: true as const,
+    historyId: payload && "historyId" in payload ? payload.historyId : undefined,
+    expiration: payload && "expiration" in payload ? payload.expiration : undefined,
+  };
+}
+
+export async function renewAllGmailWatches() {
+  if (!serverEnv.GMAIL_PUBSUB_TOPIC) {
+    return [];
+  }
+
+  const integrations = await db.gmailIntegration.findMany({
+    select: {
+      id: true,
+      workspaceId: true,
+      email: true,
+    },
+    orderBy: { updatedAt: "asc" },
+  });
+
+  chatLog("info", "gmail_watch_renew_all_started", {
+    integrations: integrations.length,
+    topicName: serverEnv.GMAIL_PUBSUB_TOPIC,
+  });
+
+  const results = [];
+  for (const integration of integrations) {
+    try {
+      const result = await ensureGmailWatch({
+        integrationId: integration.id,
+        workspaceId: integration.workspaceId,
+        email: integration.email,
+      });
+      results.push({ email: integration.email, ...result });
+    } catch (error) {
+      chatLog("warn", "gmail_watch_renew_failed", {
+        workspaceId: integration.workspaceId,
+        integrationId: integration.id,
+        email: integration.email,
+        error: getErrorDetails(error),
+      });
+      results.push({
+        ok: false,
+        email: integration.email,
+        error: error instanceof Error ? error.message : "Gmail watch renewal failed",
+      });
+    }
+  }
+
+  chatLog("info", "gmail_watch_renew_all_completed", {
+    integrations: integrations.length,
+    results,
+  });
+
+  return results;
 }
 
 function header(headers: GmailHeader[] | undefined, name: string) {
