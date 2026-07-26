@@ -1,8 +1,5 @@
 import { UnifiedInboxClient } from "@/modules/inbox/components/unified-inbox-client";
-import { requireActiveMembership } from "@/modules/auth/guards";
 
-export default async function InboxPage() {
-  await requireActiveMembership();
-
+export default function InboxPage() {
   return <UnifiedInboxClient />;
 }
