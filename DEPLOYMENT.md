@@ -54,11 +54,12 @@ If `adapter` is `memory`, the Redis URL is missing, wrong, or unreachable.
 
 Create a second Render service from the same repo.
 
-Use a Background Worker if your Render plan supports it. If not, a Web Service can also run the worker command, but it does not need a public URL.
+Use a Background Worker if your Render plan supports it. If not, use a Web Service with the same worker command. The worker opens a tiny `/health` endpoint when Render provides `PORT`, so a Web Service can run it without port-scan failures.
 
 ```text
 Build Command: npm install
 Start Command: npm run worker
+Health Check Path: /health
 ```
 
 Worker environment variables:
