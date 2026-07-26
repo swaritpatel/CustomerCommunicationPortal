@@ -59,6 +59,16 @@ type TimelineEvent = {
   latestMessage: { body: string; senderType: string; createdAt: string } | null;
 };
 
+type ContactProfile = {
+  name: string | null;
+  email: string | null;
+  totalConversations: number;
+  channels: ConversationChannel[];
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  pageViews: Array<{ url: string; title?: string | null; seenAt: string }>;
+};
+
 type AnalyticsPayload = {
   totals: {
     conversations: number;
@@ -68,8 +78,16 @@ type AnalyticsPayload = {
     resolutionRate: number;
   };
   byChannel: { EMAIL: number; CHAT_WIDGET: number };
-  firstResponse: { medianMinutes: number; breaches: number };
-  resolution: { medianHours: number; breaches: number };
+  firstResponse: { targetMinutes?: number; medianMinutes: number; breaches: number };
+  resolution: { targetHours?: number; medianHours: number; breaches: number };
+  busiestHours?: Array<{ hour: number; label: string; count: number }>;
+  agentPerformance?: Array<{
+    agentId: string;
+    name: string;
+    email: string;
+    assignedCount: number;
+    repliesSent: number;
+  }>;
 };
 
 type ConversationSummary = {
@@ -87,6 +105,7 @@ type CannedResponse = {
   id: string;
   tag: string;
   body: string;
+  updatedAt?: string;
 };
 
 type GmailStatus = {
@@ -178,6 +197,7 @@ export function UnifiedInboxClient() {
   const [activeId, setActiveId] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [contactProfile, setContactProfile] = useState<ContactProfile | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsPayload | null>(null);
   const [summary, setSummary] = useState<ConversationSummary | null>(null);
   const [text, setText] = useState("");
@@ -185,13 +205,13 @@ export function UnifiedInboxClient() {
   const [isDrafting, setIsDrafting] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
+  const [isSavingCanned, setIsSavingCanned] = useState(false);
   const [cannedResponses, setCannedResponses] = useState<CannedResponse[]>(DEFAULT_CANNED_RESPONSES);
   const [newCannedTag, setNewCannedTag] = useState("");
   const [newCannedBody, setNewCannedBody] = useState("");
   const [gmailStatus, setGmailStatus] = useState<GmailStatus | null>(null);
   const [isGmailSyncing, setIsGmailSyncing] = useState(false);
   const [gmailMessage, setGmailMessage] = useState("");
-  const cannedResponsesLoadedRef = useRef(false);
   const gmailSyncingRef = useRef(false);
   const socketRef = useRef<Socket | null>(null);
 
@@ -204,20 +224,16 @@ export function UnifiedInboxClient() {
     [activeId, messages],
   );
 
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      cannedResponsesLoadedRef.current = true;
+  const loadCannedResponses = useCallback(async () => {
+    const response = await fetch("/api/inbox/canned-responses", { cache: "no-store" }).catch(() => null);
+    if (!response || !response.ok) {
       setCannedResponses(readStoredCannedResponses());
-    }, 0);
-    return () => window.clearTimeout(timeout);
-  }, []);
-
-  useEffect(() => {
-    if (!cannedResponsesLoadedRef.current) {
       return;
     }
-    window.localStorage.setItem("relaydesk.cannedResponses", JSON.stringify(cannedResponses));
-  }, [cannedResponses]);
+
+    const payload = (await response.json()) as { responses?: CannedResponse[] };
+    setCannedResponses(payload.responses && payload.responses.length > 0 ? payload.responses : DEFAULT_CANNED_RESPONSES);
+  }, []);
 
   const loadConversations = useCallback(async () => {
     const params = new URLSearchParams();
@@ -262,6 +278,7 @@ export function UnifiedInboxClient() {
     const payload = await response.json();
     setMessages(payload.messages ?? []);
     setTimeline(payload.timeline ?? []);
+    setContactProfile(payload.contact ?? null);
   }, []);
 
   const loadAnalytics = useCallback(async () => {
@@ -318,6 +335,13 @@ export function UnifiedInboxClient() {
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
+      void loadCannedResponses();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [loadCannedResponses]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
       void loadAnalytics();
     }, 0);
     const interval = window.setInterval(() => {
@@ -342,6 +366,7 @@ export function UnifiedInboxClient() {
       const timeout = window.setTimeout(() => {
         setMessages([]);
         setTimeline([]);
+        setContactProfile(null);
       }, 0);
       return () => window.clearTimeout(timeout);
     }
@@ -575,16 +600,48 @@ export function UnifiedInboxClient() {
     setText((current) => (current.trim().length > 0 ? `${current}\n\n${body}` : body));
   };
 
-  const saveCanned = () => {
+  const saveCanned = async () => {
     const tag = newCannedTag.trim();
     const body = newCannedBody.trim();
-    if (!tag || !body) {
+    if (!tag || !body || isSavingCanned) {
       return;
     }
 
-    setCannedResponses((current) => [{ id: `${Date.now()}`, tag, body }, ...current]);
-    setNewCannedTag("");
-    setNewCannedBody("");
+    setIsSavingCanned(true);
+    try {
+      const response = await fetch("/api/inbox/canned-responses", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tag, body }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to save response");
+      }
+
+      const payload = (await response.json()) as { response?: CannedResponse };
+      if (payload.response) {
+        setCannedResponses((current) => [payload.response as CannedResponse, ...current]);
+      }
+      setNewCannedTag("");
+      setNewCannedBody("");
+    } catch (error) {
+      console.error("[inbox:canned_save_failed]", error);
+    } finally {
+      setIsSavingCanned(false);
+    }
+  };
+
+  const deleteCanned = async (responseId: string) => {
+    const response = await fetch(`/api/inbox/canned-responses?id=${encodeURIComponent(responseId)}`, {
+      method: "DELETE",
+    }).catch(() => null);
+
+    if (!response || !response.ok) {
+      return;
+    }
+
+    setCannedResponses((current) => current.filter((responseItem) => responseItem.id !== responseId));
   };
 
   return (
@@ -667,6 +724,8 @@ export function UnifiedInboxClient() {
               {[
                 ["Open", analytics.totals.open],
                 ["Snoozed", analytics.totals.snoozed],
+                ["Resolved", analytics.totals.resolved],
+                ["Rate", `${Math.round(analytics.totals.resolutionRate * 100)}%`],
                 ["Email", analytics.byChannel.EMAIL],
                 ["Chat", analytics.byChannel.CHAT_WIDGET],
               ].map(([label, value]) => (
@@ -880,17 +939,31 @@ export function UnifiedInboxClient() {
             <p className="eyebrow">SLA Health</p>
             {activeConversation ? (
               <div className="mt-4 grid gap-3 text-sm">
-                <div className="rounded-2xl border border-[var(--color-line)] bg-[rgba(255,255,255,0.62)] p-4">
+                <div className={`rounded-2xl border p-4 ${
+                  activeConversation.sla.firstResponseBreach
+                    ? "border-[rgba(224,75,54,0.28)] bg-[rgba(224,75,54,0.08)]"
+                    : "border-[var(--color-line)] bg-[rgba(255,255,255,0.62)]"
+                }`}>
                   <p className="font-bold">First response</p>
                   <p className="mt-1 text-[var(--color-muted)]">
                     {activeConversation.sla.firstResponseMinutes === null
                       ? "No customer message yet"
                       : `${Math.round(activeConversation.sla.firstResponseMinutes)}m elapsed`}
                   </p>
+                  <p className="mt-1 text-xs font-semibold text-[var(--color-muted)]">
+                    Target: {analytics?.firstResponse.targetMinutes ?? 15}m
+                  </p>
                 </div>
-                <div className="rounded-2xl border border-[var(--color-line)] bg-[rgba(255,255,255,0.62)] p-4">
+                <div className={`rounded-2xl border p-4 ${
+                  activeConversation.sla.resolutionBreach
+                    ? "border-[rgba(224,75,54,0.28)] bg-[rgba(224,75,54,0.08)]"
+                    : "border-[var(--color-line)] bg-[rgba(255,255,255,0.62)]"
+                }`}>
                   <p className="font-bold">Resolution</p>
                   <p className="mt-1 text-[var(--color-muted)]">{Math.round(activeConversation.sla.resolutionHours)}h age</p>
+                  <p className="mt-1 text-xs font-semibold text-[var(--color-muted)]">
+                    Target: {analytics?.resolution.targetHours ?? 24}h
+                  </p>
                 </div>
               </div>
             ) : null}
@@ -904,26 +977,94 @@ export function UnifiedInboxClient() {
 
           <article className="card rounded-[2rem] p-5">
             <p className="eyebrow">Canned responses</p>
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-3 grid gap-2">
               {cannedResponses.map((response) => (
-                <button
-                  key={response.id}
-                  className="rounded-full border border-[var(--color-line)] bg-white px-3 py-1 text-xs font-semibold"
-                  onClick={() => insertCanned(response.body)}
-                >
-                  {response.tag}
-                </button>
+                <div key={response.id} className="flex items-center gap-2 rounded-2xl border border-[var(--color-line)] bg-white px-3 py-2">
+                  <button
+                    className="min-w-0 flex-1 truncate text-left text-xs font-bold"
+                    onClick={() => insertCanned(response.body)}
+                    title={response.body}
+                  >
+                    {response.tag}
+                  </button>
+                  {!response.id.startsWith("ack-") && !response.id.startsWith("details-") && !response.id.startsWith("resolved-") ? (
+                    <button
+                      className="rounded-full border border-[var(--color-line)] px-2 py-1 text-[10px] font-bold text-[var(--color-muted)]"
+                      onClick={() => void deleteCanned(response.id)}
+                    >
+                      Delete
+                    </button>
+                  ) : null}
+                </div>
               ))}
             </div>
             <div className="mt-4 grid gap-2">
               <input className="input" value={newCannedTag} onChange={(event) => setNewCannedTag(event.target.value)} placeholder="Tag" />
               <textarea className="input min-h-[74px]" value={newCannedBody} onChange={(event) => setNewCannedBody(event.target.value)} placeholder="Saved response text" />
-              <button className="btn-secondary" onClick={saveCanned}>Save response</button>
+              <button className="btn-secondary" onClick={() => void saveCanned()} disabled={isSavingCanned}>
+                {isSavingCanned ? "Saving..." : "Save response"}
+              </button>
             </div>
           </article>
 
           <article className="card rounded-[2rem] p-5">
+            <p className="eyebrow">Analytics dashboard</p>
+            {analytics ? (
+              <div className="mt-4 grid gap-4 text-sm">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-soft)]">Busiest hours</p>
+                  <div className="mt-2 grid gap-2">
+                    {(analytics.busiestHours ?? []).length > 0 ? (
+                      (analytics.busiestHours ?? []).map((item) => (
+                        <div key={item.hour} className="flex items-center justify-between rounded-xl border border-[var(--color-line)] bg-[rgba(255,255,255,0.62)] px-3 py-2">
+                          <span className="font-semibold">{item.label}</span>
+                          <span className="text-xs text-[var(--color-muted)]">{item.count} conversations</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-[var(--color-muted)]">No traffic pattern yet.</p>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-soft)]">Agent performance</p>
+                  <div className="mt-2 grid gap-2">
+                    {(analytics.agentPerformance ?? []).length > 0 ? (
+                      (analytics.agentPerformance ?? []).map((agent) => (
+                        <div key={agent.agentId} className="rounded-xl border border-[var(--color-line)] bg-[rgba(255,255,255,0.62)] px-3 py-2">
+                          <p className="font-semibold">{agent.name}</p>
+                          <p className="text-xs text-[var(--color-muted)]">
+                            {agent.assignedCount} active assigned · {agent.repliesSent} replies sent
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-[var(--color-muted)]">No assigned workload yet.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-[var(--color-muted)]">Loading analytics...</p>
+            )}
+          </article>
+
+          <article className="card rounded-[2rem] p-5">
             <p className="eyebrow">Contact timeline</p>
+            {contactProfile ? (
+              <div className="mt-3 grid gap-2 rounded-2xl border border-[var(--color-line)] bg-[rgba(255,255,255,0.62)] p-3 text-xs text-[var(--color-muted)]">
+                <p className="font-bold text-[var(--color-ink)]">{contactProfile.name || contactProfile.email || "Unknown contact"}</p>
+                {contactProfile.email ? <p>{contactProfile.email}</p> : null}
+                <p>
+                  {contactProfile.totalConversations} conversation{contactProfile.totalConversations === 1 ? "" : "s"} ·{" "}
+                  {contactProfile.channels.map(channelLabel).join(", ") || "No channels"}
+                </p>
+                <p>
+                  First seen {contactProfile.firstSeenAt ? `${formatRelative(contactProfile.firstSeenAt)} ago` : "unknown"} · Last seen{" "}
+                  {contactProfile.lastSeenAt ? `${formatRelative(contactProfile.lastSeenAt)} ago` : "unknown"}
+                </p>
+              </div>
+            ) : null}
             <div className="mt-3 grid max-h-[300px] gap-2 overflow-auto text-xs text-[var(--color-muted)]">
               {timeline.length === 0 ? (
                 <p>No linked history yet.</p>
@@ -934,6 +1075,18 @@ export function UnifiedInboxClient() {
                     <p>{channelLabel(event.channel)} · {event.status} · {formatRelative(event.updatedAt)} ago</p>
                   </div>
                 ))
+              )}
+            </div>
+            <div className="mt-3 rounded-2xl border border-dashed border-[var(--color-line)] bg-[rgba(255,255,255,0.42)] p-3 text-xs text-[var(--color-muted)]">
+              <p className="font-bold uppercase tracking-[0.08em] text-[var(--color-soft)]">Pages visited</p>
+              {contactProfile?.pageViews.length ? (
+                <div className="mt-2 grid gap-1">
+                  {contactProfile.pageViews.map((view) => (
+                    <p key={`${view.url}-${view.seenAt}`}>{view.title || view.url} · {formatRelative(view.seenAt)} ago</p>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2">No page visits tracked for this contact yet.</p>
               )}
             </div>
           </article>

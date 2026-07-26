@@ -14,6 +14,13 @@ type InboxTimelineItem = {
   messages: Array<{ body: string; senderType: string; createdAt: Date }>;
 };
 
+type ContactHistoryItem = {
+  channel: string;
+  createdAt: Date;
+  updatedAt: Date;
+  visitorLastSeenAt: Date | null;
+};
+
 export async function GET(request: Request) {
   try {
     const claims = await getSessionClaims();
@@ -70,7 +77,7 @@ export async function GET(request: Request) {
       }),
     ]);
 
-    const [messages, timeline]: [unknown, InboxTimelineItem[]] = await Promise.all([
+    const [messages, timeline, contactHistory]: [unknown, InboxTimelineItem[], ContactHistoryItem[]] = await Promise.all([
       db.chatMessage.findMany({
         where: { conversationId: conversation.id },
         orderBy: { createdAt: "asc" },
@@ -113,10 +120,43 @@ export async function GET(request: Request) {
             },
           })
         : Promise.resolve([]),
+      conversation.customerEmail
+        ? db.conversation.findMany({
+            where: {
+              workspaceId: conversation.workspaceId,
+              customerEmail: conversation.customerEmail,
+            },
+            select: {
+              channel: true,
+              createdAt: true,
+              updatedAt: true,
+              visitorLastSeenAt: true,
+            },
+          })
+        : Promise.resolve([]),
     ]);
+
+    const channels = [...new Set(contactHistory.map((item) => item.channel))];
+    const firstSeenAt = contactHistory.reduce<Date | null>(
+      (earliest, item) => (!earliest || item.createdAt < earliest ? item.createdAt : earliest),
+      null,
+    );
+    const lastSeenAt = contactHistory.reduce<Date | null>((latest, item) => {
+      const candidate = item.visitorLastSeenAt ?? item.updatedAt;
+      return !latest || candidate > latest ? candidate : latest;
+    }, null);
 
     return NextResponse.json({
       messages,
+      contact: {
+        name: conversation.customerName,
+        email: conversation.customerEmail,
+        totalConversations: contactHistory.length,
+        channels,
+        firstSeenAt,
+        lastSeenAt,
+        pageViews: [],
+      },
       timeline: timeline.map((item: InboxTimelineItem) => ({
         conversationId: item.id,
         subject: item.subject,

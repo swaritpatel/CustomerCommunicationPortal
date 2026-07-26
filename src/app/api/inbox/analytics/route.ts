@@ -9,17 +9,8 @@ const RESOLUTION_TARGET_HOURS = 24;
 
 type AnalyticsMessageItem = {
   senderType: string;
+  senderUserId: string | null;
   createdAt: Date;
-};
-
-type InboxAnalyticsConversation = {
-  id: string;
-  channel: "EMAIL" | "CHAT_WIDGET";
-  status: "OPEN" | "SNOOZED" | "RESOLVED";
-  createdAt: Date;
-  updatedAt: Date;
-  currentAssigneeId: string | null;
-  messages: AnalyticsMessageItem[];
 };
 
 function median(values: number[]) {
@@ -57,31 +48,59 @@ export async function GET() {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const conversations: InboxAnalyticsConversation[] = await db.conversation.findMany({
-      where: { workspaceId: claims.workspaceId },
-      select: {
-        id: true,
-        channel: true,
-        status: true,
-        createdAt: true,
-        updatedAt: true,
-        currentAssigneeId: true,
-        messages: {
-          orderBy: { createdAt: "asc" },
-          select: {
-            senderType: true,
-            createdAt: true,
+    const [conversations, members] = await Promise.all([
+      db.conversation.findMany({
+        where: { workspaceId: claims.workspaceId },
+        select: {
+          id: true,
+          channel: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+          currentAssigneeId: true,
+          messages: {
+            orderBy: { createdAt: "asc" },
+            select: {
+              senderType: true,
+              senderUserId: true,
+              createdAt: true,
+            },
           },
         },
-      },
-    });
+      }),
+      db.workspaceMember.findMany({
+        where: {
+          workspaceId: claims.workspaceId,
+          status: "ACTIVE",
+        },
+        select: {
+          userId: true,
+          user: {
+            select: {
+              fullName: true,
+              email: true,
+            },
+          },
+        },
+      }),
+    ]);
 
     const firstResponseMinutes: number[] = [];
     const resolutionHours: number[] = [];
     const busiestHourMap = new Map<number, number>();
     const agentLoadMap = new Map<string, number>();
+    const agentRepliesMap = new Map<string, number>();
     const byChannel = { EMAIL: 0, CHAT_WIDGET: 0 };
     const byStatus = { OPEN: 0, SNOOZED: 0, RESOLVED: 0 };
+    const memberMap = new Map(
+      members.map((member) => [
+        member.userId,
+        {
+          name: member.user.fullName,
+          email: member.user.email,
+        },
+      ]),
+    );
 
     let firstResponseBreaches = 0;
     let resolutionBreaches = 0;
@@ -103,6 +122,12 @@ export async function GET() {
           conversation.currentAssigneeId,
           (agentLoadMap.get(conversation.currentAssigneeId) ?? 0) + 1,
         );
+      }
+
+      for (const message of conversation.messages) {
+        if (message.senderType === "AGENT" && message.senderUserId) {
+          agentRepliesMap.set(message.senderUserId, (agentRepliesMap.get(message.senderUserId) ?? 0) + 1);
+        }
       }
 
       if (firstVisitor && firstAgent) {
@@ -154,10 +179,20 @@ export async function GET() {
       busiestHours: [...busiestHourMap.entries()]
         .sort((a, b) => b[1] - a[1])
         .slice(0, 3)
-        .map(([hour, count]) => ({ hour, count })),
+        .map(([hour, count]) => ({
+          hour,
+          label: `${String(hour).padStart(2, "0")}:00`,
+          count,
+        })),
       agentPerformance: [...agentLoadMap.entries()]
         .sort((a, b) => b[1] - a[1])
-        .map(([agentId, assignedCount]) => ({ agentId, assignedCount })),
+        .map(([agentId, assignedCount]) => ({
+          agentId,
+          name: memberMap.get(agentId)?.name ?? "Unknown agent",
+          email: memberMap.get(agentId)?.email ?? "",
+          assignedCount,
+          repliesSent: agentRepliesMap.get(agentId) ?? 0,
+        })),
     });
   } catch (error) {
     chatLog("error", "inbox_analytics_failed", {

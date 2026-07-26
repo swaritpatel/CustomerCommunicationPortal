@@ -22,6 +22,7 @@ export type EmailWebhookJob = {
 
 export type EmailSendJob = {
   kind: "email.send";
+  purpose?: "AGENT_REPLY" | "AUTO_ACK";
   workspaceId: string;
   conversationId: string;
   customerEmail: string;

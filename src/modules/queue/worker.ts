@@ -11,6 +11,25 @@ import { CCP_QUEUE_NAME, type CcpJob, type EmailSendJob } from "@/modules/queue/
 import { deliverConversationEvent } from "@/modules/realtime/broadcast";
 
 async function processEmailSend(job: EmailSendJob) {
+  if (job.purpose === "AUTO_ACK" && job.inReplyTo) {
+    const existingAutoAck = await db.emailMessageReference.findFirst({
+      where: {
+        workspaceId: job.workspaceId,
+        conversationId: job.conversationId,
+        inReplyTo: job.inReplyTo,
+        source: "OUTBOUND",
+      },
+      select: { id: true },
+    });
+
+    if (existingAutoAck) {
+      chatLog("info", "email_auto_ack_duplicate_skipped", {
+        conversationId: job.conversationId,
+      });
+      return;
+    }
+  }
+
   const outbound = await sendSupportEmail({
     to: job.customerEmail,
     subject: job.subject,

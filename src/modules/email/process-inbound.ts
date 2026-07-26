@@ -51,6 +51,7 @@ async function sendAcknowledgement(input: {
 
   const queued = await enqueueBackgroundJob({
     kind: "email.send",
+    purpose: "AUTO_ACK",
     workspaceId: input.workspaceId,
     conversationId: input.conversationId,
     customerEmail: input.customerEmail,
@@ -59,9 +60,25 @@ async function sendAcknowledgement(input: {
     inReplyTo: input.inReplyTo,
     references,
     webhookOccurredAt: now.toISOString(),
+  }, {
+    jobId: `email:auto-ack:${input.conversationId}`,
   });
 
   if (!queued) {
+    const existingAutoAck = await db.emailMessageReference.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        inReplyTo: input.inReplyTo,
+        source: "OUTBOUND",
+      },
+      select: { id: true },
+    });
+
+    if (existingAutoAck) {
+      return;
+    }
+
     const outbound = await sendSupportEmail({
       to: input.customerEmail,
       subject,

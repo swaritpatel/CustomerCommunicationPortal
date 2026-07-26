@@ -112,6 +112,7 @@ model User {
   assignmentEventsTo    AssignmentEvent[]      @relation("AssignmentToUser")
   chatMessages          ChatMessage[]
   typingStates          ChatTypingState[]
+  cannedResponses       CannedResponse[]
   knowledgeBaseArticles KnowledgeBaseArticle[]
 }
 
@@ -132,6 +133,7 @@ model Workspace {
   typingStates            ChatTypingState[]
   emailReferences         EmailMessageReference[]
   gmailIntegrations       GmailIntegration[]
+  cannedResponses         CannedResponse[]
   knowledgeBaseCategories KnowledgeBaseCategory[]
   knowledgeBaseArticles   KnowledgeBaseArticle[]
   knowledgeBaseDomains    KnowledgeBaseDomain[]
@@ -268,6 +270,21 @@ model ChatMessage {
 
   @@index([conversationId, createdAt])
   @@index([workspaceId, createdAt])
+}
+
+model CannedResponse {
+  id          String    @id @default(cuid())
+  workspaceId String
+  tag         String
+  body        String
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, tag])
+  @@index([workspaceId, updatedAt])
 }
 
 model ChatTypingState {

@@ -10,6 +10,14 @@ type DraftMessageItem = {
   body: string;
 };
 
+function cleanSearchText(value: string) {
+  return value
+    .replace(/[^a-zA-Z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+}
+
 export async function POST(request: Request) {
   try {
     const claims = await getSessionClaims();
@@ -33,6 +41,11 @@ export async function POST(request: Request) {
         workspaceId: true,
         subject: true,
         customerName: true,
+        workspace: {
+          select: {
+            slug: true,
+          },
+        },
       },
     });
 
@@ -63,12 +76,40 @@ export async function POST(request: Request) {
         body: true,
       },
     });
+    const latestCustomerMessage = [...messages].reverse().find((message) => message.senderType === "VISITOR");
+    const articleQuery = cleanSearchText(`${conversation.subject} ${latestCustomerMessage?.body ?? ""}`);
+    const suggestedArticles =
+      articleQuery.length >= 3
+        ? await db.knowledgeBaseArticle.findMany({
+            where: {
+              workspaceId: conversation.workspaceId,
+              status: "PUBLISHED",
+              OR: [
+                { title: { contains: articleQuery, mode: "insensitive" } },
+                { excerpt: { contains: articleQuery, mode: "insensitive" } },
+                { contentHtml: { contains: articleQuery, mode: "insensitive" } },
+              ],
+            },
+            orderBy: { updatedAt: "desc" },
+            take: 3,
+            select: {
+              title: true,
+              slug: true,
+              excerpt: true,
+            },
+          })
+        : [];
 
     const draft = buildAutoReplyDraft({
       subject: conversation.subject,
       customerName: conversation.customerName,
       recentMessages: messages,
       cannedResponses: Array.isArray(body?.cannedResponses) ? body.cannedResponses : [],
+      suggestedArticles: suggestedArticles.map((article) => ({
+        title: article.title,
+        excerpt: article.excerpt,
+        href: `/help/${conversation.workspace.slug}?article=${article.slug}`,
+      })),
     });
 
     return NextResponse.json({ draft });
