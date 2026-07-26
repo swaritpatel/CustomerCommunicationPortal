@@ -5,6 +5,7 @@ import { getSessionClaims } from "@/modules/auth/session";
 import { chatLog } from "@/modules/chat/log";
 import { sendSupportEmail } from "@/modules/email/smtp";
 import { dispatchEmailWebhookEvent } from "@/modules/email/webhooks";
+import { enqueueBackgroundJob } from "@/modules/queue/enqueue";
 
 type EmailReferenceItem = {
   messageId: string;
@@ -71,17 +72,10 @@ export async function POST(request: Request) {
     const inReplyTo = latestReferences[0]?.messageId ?? null;
     const references = latestReferences.map((entry: EmailReferenceItem) => entry.messageId);
 
-    const outbound = await sendSupportEmail({
-      to: conversation.customerEmail,
-      subject: conversation.subject.startsWith("Re:")
-        ? conversation.subject
-        : `Re: ${conversation.subject}`,
-      text,
-      inReplyTo,
-      references,
-    });
-
     const now = new Date();
+    const subject = conversation.subject.startsWith("Re:")
+      ? conversation.subject
+      : `Re: ${conversation.subject}`;
 
     await db.$transaction(async (tx: DbTransactionClient) => {
       await tx.chatMessage.create({
@@ -95,16 +89,6 @@ export async function POST(request: Request) {
         },
       });
 
-      await tx.emailMessageReference.create({
-        data: {
-          workspaceId: conversation.workspaceId,
-          conversationId: conversation.id,
-          messageId: outbound.messageId,
-          inReplyTo,
-          source: "OUTBOUND",
-        },
-      });
-
       await tx.conversation.update({
         where: { id: conversation.id },
         data: {
@@ -112,6 +96,41 @@ export async function POST(request: Request) {
           status: "OPEN",
         },
       });
+    });
+
+    const queued = await enqueueBackgroundJob({
+      kind: "email.send",
+      workspaceId: conversation.workspaceId,
+      conversationId: conversation.id,
+      customerEmail: conversation.customerEmail,
+      subject,
+      text,
+      inReplyTo,
+      references,
+      agentUserId: claims.sub,
+      webhookOccurredAt: now.toISOString(),
+    });
+
+    if (queued) {
+      return NextResponse.json({ ok: true, queued: true });
+    }
+
+    const outbound = await sendSupportEmail({
+      to: conversation.customerEmail,
+      subject,
+      text,
+      inReplyTo,
+      references,
+    });
+
+    await db.emailMessageReference.create({
+      data: {
+        workspaceId: conversation.workspaceId,
+        conversationId: conversation.id,
+        messageId: outbound.messageId,
+        inReplyTo,
+        source: "OUTBOUND",
+      },
     });
 
     await dispatchEmailWebhookEvent({
@@ -125,7 +144,7 @@ export async function POST(request: Request) {
       },
     });
 
-    return NextResponse.json({ ok: true, messageId: outbound.messageId });
+    return NextResponse.json({ ok: true, messageId: outbound.messageId, queued: false });
   } catch (error) {
     chatLog("error", "email_reply_failed", {
       error: error instanceof Error ? error.message : "unknown_error",

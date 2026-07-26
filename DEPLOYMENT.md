@@ -1,6 +1,6 @@
 # Deployment: Vercel + Render + Hosted Redis
 
-This project uses Vercel for the Next.js app and Render for the long-lived Socket.IO realtime gateway.
+This project uses Vercel for the Next.js app, Render for the long-lived Socket.IO realtime gateway, and a Render worker for Redis-backed background jobs.
 
 ## 1. Create Hosted Redis
 
@@ -50,7 +50,58 @@ Expected:
 
 If `adapter` is `memory`, the Redis URL is missing, wrong, or unreachable.
 
-## 3. Deploy Next.js App On Vercel
+## 3. Deploy Queue Worker On Render
+
+Create a second Render service from the same repo.
+
+Use a Background Worker if your Render plan supports it. If not, a Web Service can also run the worker command, but it does not need a public URL.
+
+```text
+Build Command: npm install
+Start Command: npm run worker
+```
+
+Worker environment variables:
+
+```env
+NODE_ENV=production
+DATABASE_URL=postgresql://...
+APP_URL=https://your-vercel-app.vercel.app
+COOKIE_DOMAIN=your-vercel-app.vercel.app
+JWT_ACCESS_SECRET=replace-with-at-least-32-characters
+JWT_REFRESH_SECRET=replace-with-at-least-32-characters
+REALTIME_SERVER_URL=https://your-render-realtime.onrender.com
+REALTIME_INTERNAL_SECRET=same-value-as-realtime-and-vercel
+REDIS_URL=rediss://default:YOUR_PASSWORD@YOUR_HOST.upstash.io:6379
+QUEUE_CONCURRENCY=4
+```
+
+Add SMTP and AI variables to the worker too, because it processes outbound email and AI auto-replies:
+
+```env
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_USER=your-brevo-smtp-login
+SMTP_PASS=your-brevo-smtp-key
+SMTP_SECURE=false
+SMTP_FROM_EMAIL=support@yourdomain.com
+SMTP_FROM_NAME=Cosmofeed Support
+AI_CHAT_MODE=autoreply
+AI_PROVIDER=openai
+AI_API_KEY=your-openai-key
+AI_MODEL=gpt-4o-mini
+AI_BASE_URL=https://api.openai.com
+```
+
+The queue worker handles:
+
+- outbound SMTP email delivery
+- webhook dispatch with retries
+- AI chat auto-replies
+
+Realtime socket broadcasts stay direct so chat remains fast.
+
+## 4. Deploy Next.js App On Vercel
 
 Deploy the same repo to Vercel.
 
@@ -68,6 +119,7 @@ NEXT_PUBLIC_REALTIME_URL=https://your-render-realtime.onrender.com
 REALTIME_SERVER_URL=https://your-render-realtime.onrender.com
 REALTIME_INTERNAL_SECRET=same-value-as-render
 REDIS_URL=rediss://default:YOUR_PASSWORD@YOUR_HOST.upstash.io:6379
+QUEUE_CONCURRENCY=4
 ```
 
 Email values, if using Brevo:
@@ -86,7 +138,7 @@ INBOUND_EMAIL_DOMAIN=yourdomain.com
 
 Redeploy after changing Vercel environment variables.
 
-## 4. Sync Database
+## 5. Sync Database
 
 Before testing production flows, run Prisma schema sync against the production database:
 
@@ -96,7 +148,7 @@ npx prisma db push
 
 Use the same `DATABASE_URL` as Vercel.
 
-## 5. Verify Production
+## 6. Verify Production
 
 Realtime:
 
@@ -126,3 +178,4 @@ https://your-vercel-app.vercel.app/inbox
 - Forgetting to redeploy Vercel after env changes.
 - Setting `COOKIE_DOMAIN` with `https://`; use only the hostname.
 - Render health shows `memory`; Redis did not connect.
+- Queue worker is not deployed; SMTP replies and AI auto-replies will stay queued until it starts.

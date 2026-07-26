@@ -20,6 +20,10 @@ function realtimeUrl() {
 }
 
 export async function broadcastConversationEvent(input: BroadcastInput) {
+  await deliverConversationEvent(input);
+}
+
+export async function deliverConversationEvent(input: BroadcastInput) {
   const baseUrl = realtimeUrl();
   if (!baseUrl) {
     return;

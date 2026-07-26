@@ -1,5 +1,6 @@
 import { serverEnv } from "@/lib/env";
 import { chatLog } from "@/modules/chat/log";
+import { enqueueBackgroundJob } from "@/modules/queue/enqueue";
 
 type EmailWebhookEventType =
   | "email.inbound.received"
@@ -28,6 +29,19 @@ function getWebhookTargets() {
 }
 
 export async function dispatchEmailWebhookEvent(event: EmailWebhookEvent) {
+  const enqueued = await enqueueBackgroundJob({
+    kind: "email.webhook",
+    event,
+  });
+
+  if (enqueued) {
+    return;
+  }
+
+  await deliverEmailWebhookEvent(event);
+}
+
+export async function deliverEmailWebhookEvent(event: EmailWebhookEvent) {
   const targets = getWebhookTargets();
   if (targets.length === 0) {
     return;
