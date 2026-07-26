@@ -62,6 +62,11 @@ function buildTranscript(messages: ConversationMessage[]) {
     .join("\n");
 }
 
+function buildPublicHelpArticleUrl(workspaceSlug: string, articleSlug: string) {
+  const baseUrl = serverEnv.APP_URL.replace(/\/$/, "");
+  return `${baseUrl}/help/${workspaceSlug}?article=${encodeURIComponent(articleSlug)}`;
+}
+
 async function generateUniqueSlug(input: { workspaceId: string; title: string }) {
   const base = toWorkspaceSlug(input.title) || `article-${crypto.randomUUID().slice(0, 8)}`;
 
@@ -307,7 +312,7 @@ export async function createKnowledgeArticleFromConversation(input: {
     ok: true as const,
     article: {
       ...article,
-      href: `/help/${conversation.workspace.slug}?article=${article.slug}`,
+      href: buildPublicHelpArticleUrl(conversation.workspace.slug, article.slug),
     },
   };
 }

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { serverEnv } from "@/lib/env";
 import { buildKnowledgeSearchOr, scoreKnowledgeArticle, tokenizeKnowledgeQuery } from "@/modules/kb/search";
 
 export type SuggestedKnowledgeArticle = {
@@ -13,6 +14,11 @@ function cleanSearchText(value: string) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 220);
+}
+
+function buildPublicHelpArticleUrl(workspaceSlug: string, articleSlug: string) {
+  const baseUrl = serverEnv.APP_URL.replace(/\/$/, "");
+  return `${baseUrl}/help/${workspaceSlug}?article=${encodeURIComponent(articleSlug)}`;
 }
 
 export async function findSuggestedKnowledgeArticles(input: {
@@ -54,6 +60,6 @@ export async function findSuggestedKnowledgeArticles(input: {
     .map((article) => ({
       title: article.title,
       excerpt: article.excerpt,
-      href: `/help/${input.workspaceSlug}?article=${article.slug}`,
+      href: buildPublicHelpArticleUrl(input.workspaceSlug, article.slug),
     }));
 }

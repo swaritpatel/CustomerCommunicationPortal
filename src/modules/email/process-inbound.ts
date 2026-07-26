@@ -70,6 +70,32 @@ async function sendAcknowledgement(input: {
 }) {
   const now = new Date();
   const subject = input.subject.startsWith("Re:") ? input.subject : `Re: ${input.subject}`;
+  const recentAutoAck = await db.chatMessage.findFirst({
+    where: {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      senderType: "SYSTEM",
+      body: { contains: input.ticketNumber, mode: "insensitive" },
+      createdAt: {
+        gte: new Date(now.getTime() - 10 * 60 * 1000),
+      },
+    },
+    select: { id: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (recentAutoAck) {
+    chatLog("info", "email_auto_ack_recent_duplicate_skipped", {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      customerEmail: input.customerEmail,
+      ticketNumber: input.ticketNumber,
+      recentAutoAckId: recentAutoAck.id,
+      recentAutoAckAt: recentAutoAck.createdAt.toISOString(),
+    });
+    return;
+  }
+
   const fallbackText = buildAcknowledgementText({
     customerName: input.customerName,
     ticketNumber: input.ticketNumber,

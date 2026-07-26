@@ -24,19 +24,35 @@ async function processEmailSend(job: EmailSendJob) {
   });
 
   if (job.purpose === "AUTO_ACK" && job.inReplyTo) {
-    const existingAutoAck = await db.emailMessageReference.findFirst({
-      where: {
-        workspaceId: job.workspaceId,
-        conversationId: job.conversationId,
-        inReplyTo: job.inReplyTo,
-        source: "OUTBOUND",
-      },
-      select: { id: true },
-    });
+    const [existingAutoAck, recentAutoAck] = await Promise.all([
+      db.emailMessageReference.findFirst({
+        where: {
+          workspaceId: job.workspaceId,
+          conversationId: job.conversationId,
+          inReplyTo: job.inReplyTo,
+          source: "OUTBOUND",
+        },
+        select: { id: true },
+      }),
+      db.chatMessage.findFirst({
+        where: {
+          workspaceId: job.workspaceId,
+          conversationId: job.conversationId,
+          senderType: "SYSTEM",
+          body: { equals: job.text },
+          createdAt: {
+            gte: new Date(Date.now() - 10 * 60 * 1000),
+          },
+        },
+        select: { id: true },
+      }),
+    ]);
 
-    if (existingAutoAck) {
+    if (existingAutoAck || recentAutoAck) {
       chatLog("info", "email_auto_ack_duplicate_skipped", {
         conversationId: job.conversationId,
+        existingAutoAckId: existingAutoAck?.id,
+        recentAutoAckId: recentAutoAck?.id,
       });
       return;
     }
