@@ -349,7 +349,20 @@ export function WidgetChatClient() {
       return true;
     }
 
-    const normalized = message.body.toLowerCase();
+    const normalized = message.body.trim().toLowerCase();
+
+    if (normalized.length < 40) {
+      return true;
+    }
+
+    if (
+      /^(hi|hii+|hello|hey|ok|okay|sure|thanks|thank you|yes|no)[\s!.,-]*(sir|there|team)?[\s!.,-]*$/i.test(
+        message.body.trim(),
+      )
+    ) {
+      return true;
+    }
+
     return [
       "how can i assist",
       "how can i help",

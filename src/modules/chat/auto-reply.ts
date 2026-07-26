@@ -40,7 +40,16 @@ function withTicketReference(body: string, ticketNumber: string | null, shouldIn
 }
 
 function isClarifyingReply(body: string) {
-  const normalized = body.toLowerCase();
+  const normalized = body.trim().toLowerCase();
+
+  if (normalized.length < 40) {
+    return true;
+  }
+
+  if (/^(hi|hii+|hello|hey|ok|okay|sure|thanks|thank you|yes|no)[\s!.,-]*(sir|there|team)?[\s!.,-]*$/i.test(body.trim())) {
+    return true;
+  }
+
   return [
     "how can i assist",
     "how can i help",
