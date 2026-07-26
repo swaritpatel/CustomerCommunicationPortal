@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import type { ConversationChannel, ConversationStatus } from "@prisma/client";
 
 import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
@@ -9,6 +8,9 @@ const FIRST_RESPONSE_TARGET_MINUTES = 15;
 const RESOLUTION_TARGET_HOURS = 24;
 const channels = ["EMAIL", "CHAT_WIDGET"] as const;
 const statuses = ["OPEN", "SNOOZED", "RESOLVED"] as const;
+
+type ConversationChannel = (typeof channels)[number];
+type ConversationStatus = (typeof statuses)[number];
 
 type SlaMessageItem = {
   senderType: string;

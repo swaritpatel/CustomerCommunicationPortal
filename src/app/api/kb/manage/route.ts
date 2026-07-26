@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import type { KnowledgeBaseArticleStatus } from "@prisma/client";
 
 import { db } from "@/lib/db";
 import { getSessionClaims } from "@/modules/auth/session";
@@ -187,7 +186,7 @@ export async function POST(request: Request) {
           categoryId?: string | null;
           excerpt?: string;
           contentHtml?: string;
-          status?: KnowledgeBaseArticleStatus;
+          status?: AllowedArticleStatus;
         }
       | null;
 
