@@ -33,21 +33,6 @@ export async function runAutoReplyWorkflow(input: {
   });
 
   try {
-    const onlineAgents = await db.workspaceMember.count({
-      where: {
-        workspaceId: input.workspaceId,
-        status: "ACTIVE",
-        lastSeenAt: { gte: new Date(Date.now() - 45_000) },
-      },
-    });
-
-    if (onlineAgents > 0) {
-      chatLog("info", "ai_reply_skipped_agents_online", {
-        conversationId: input.conversationId,
-      });
-      return;
-    }
-
     const recentMessages: RecentChatMessage[] = await db.chatMessage.findMany({
       where: { conversationId: input.conversationId },
       orderBy: { createdAt: "desc" },
