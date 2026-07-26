@@ -131,9 +131,27 @@ model Workspace {
   chatMessages            ChatMessage[]
   typingStates            ChatTypingState[]
   emailReferences         EmailMessageReference[]
+  gmailIntegrations       GmailIntegration[]
   knowledgeBaseCategories KnowledgeBaseCategory[]
   knowledgeBaseArticles   KnowledgeBaseArticle[]
   knowledgeBaseDomains    KnowledgeBaseDomain[]
+}
+
+model GmailIntegration {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  email        String
+  refreshToken String
+  accessToken  String?
+  expiresAt    DateTime?
+  historyId    String?
+  lastSyncedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, email])
+  @@index([workspaceId, updatedAt])
 }
 
 model WorkspaceMember {

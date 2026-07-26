@@ -89,6 +89,13 @@ type CannedResponse = {
   body: string;
 };
 
+type GmailStatus = {
+  configured: boolean;
+  connected: boolean;
+  email: string | null;
+  lastSyncedAt: string | null;
+};
+
 const DEFAULT_CANNED_RESPONSES: CannedResponse[] = [
   {
     id: "ack-1",
@@ -181,7 +188,11 @@ export function UnifiedInboxClient() {
   const [cannedResponses, setCannedResponses] = useState<CannedResponse[]>(DEFAULT_CANNED_RESPONSES);
   const [newCannedTag, setNewCannedTag] = useState("");
   const [newCannedBody, setNewCannedBody] = useState("");
+  const [gmailStatus, setGmailStatus] = useState<GmailStatus | null>(null);
+  const [isGmailSyncing, setIsGmailSyncing] = useState(false);
+  const [gmailMessage, setGmailMessage] = useState("");
   const cannedResponsesLoadedRef = useRef(false);
+  const gmailSyncingRef = useRef(false);
   const socketRef = useRef<Socket | null>(null);
 
   const activeConversation = useMemo(
@@ -262,6 +273,15 @@ export function UnifiedInboxClient() {
     setAnalytics((await response.json()) as AnalyticsPayload);
   }, []);
 
+  const loadGmailStatus = useCallback(async () => {
+    const response = await fetch("/api/email/gmail/status", { cache: "no-store" }).catch(() => null);
+    if (!response || !response.ok) {
+      return;
+    }
+
+    setGmailStatus((await response.json()) as GmailStatus);
+  }, []);
+
   const loadSummary = useCallback(async (conversationId: string) => {
     setIsSummarizing(true);
     try {
@@ -309,6 +329,13 @@ export function UnifiedInboxClient() {
       window.clearInterval(interval);
     };
   }, [loadAnalytics]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadGmailStatus();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [loadGmailStatus]);
 
   useEffect(() => {
     if (!activeId) {
@@ -370,13 +397,68 @@ export function UnifiedInboxClient() {
     };
   }, [activeId, loadAnalytics, loadConversations, loadMessages]);
 
-  const refreshActive = async () => {
+  const refreshActive = useCallback(async () => {
     await Promise.all([
       loadConversations(),
       activeId ? loadMessages(activeId) : Promise.resolve(),
       loadAnalytics(),
+      loadGmailStatus(),
     ]);
-  };
+  }, [activeId, loadAnalytics, loadConversations, loadGmailStatus, loadMessages]);
+
+  const syncGmail = useCallback(async (options?: { quiet?: boolean }) => {
+    if (gmailSyncingRef.current) {
+      return;
+    }
+
+    gmailSyncingRef.current = true;
+    setIsGmailSyncing(true);
+    if (!options?.quiet) {
+      setGmailMessage("");
+    }
+    try {
+      const response = await fetch("/api/email/gmail/sync", {
+        method: "POST",
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { imported?: number; skipped?: number; error?: string }
+        | null;
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Gmail sync failed");
+      }
+
+      if (!options?.quiet || (payload?.imported ?? 0) > 0) {
+        setGmailMessage(`Imported ${payload?.imported ?? 0}, skipped ${payload?.skipped ?? 0}.`);
+      }
+      await refreshActive();
+    } catch (error) {
+      if (!options?.quiet) {
+        setGmailMessage(error instanceof Error ? error.message : "Gmail sync failed");
+      }
+    } finally {
+      gmailSyncingRef.current = false;
+      setIsGmailSyncing(false);
+    }
+  }, [refreshActive]);
+
+  useEffect(() => {
+    if (!gmailStatus?.connected) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void syncGmail({ quiet: true });
+    }, 800);
+    const interval = window.setInterval(() => {
+      void syncGmail({ quiet: true });
+    }, 30_000);
+
+    return () => {
+      window.clearTimeout(timeout);
+      window.clearInterval(interval);
+    };
+  }, [gmailStatus?.connected, syncGmail]);
 
   const sendReply = async () => {
     const trimmed = text.trim();
@@ -511,6 +593,39 @@ export function UnifiedInboxClient() {
         <aside className="card rounded-[2rem] p-5">
           <p className="eyebrow">Unified Inbox</p>
           <h1 className="mt-2 text-2xl font-extrabold tracking-[-0.04em]">All conversations</h1>
+
+          <div className="mt-5 rounded-2xl border border-[var(--color-line)] bg-[rgba(255,255,255,0.65)] p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-muted)]">Gmail</p>
+                <p className="mt-1 truncate text-sm font-bold">
+                  {gmailStatus?.connected ? gmailStatus.email : "Not connected"}
+                </p>
+                {gmailStatus?.lastSyncedAt ? (
+                  <p className="mt-1 text-xs text-[var(--color-muted)]">
+                    Synced {formatRelative(gmailStatus.lastSyncedAt)} ago
+                  </p>
+                ) : null}
+              </div>
+              {gmailStatus?.connected ? (
+                <button
+                  className="btn-secondary shrink-0 px-3 py-2 text-xs"
+                  disabled={isGmailSyncing}
+                  onClick={() => void syncGmail()}
+                >
+                  {isGmailSyncing ? "Syncing" : "Sync"}
+                </button>
+              ) : (
+                <a className="btn-primary shrink-0 px-3 py-2 text-xs" href="/api/auth/google/start">
+                  Connect
+                </a>
+              )}
+            </div>
+            {gmailStatus && !gmailStatus.configured ? (
+              <p className="mt-2 text-xs text-[#a63926]">Google OAuth env vars are missing.</p>
+            ) : null}
+            {gmailMessage ? <p className="mt-2 text-xs text-[var(--color-muted)]">{gmailMessage}</p> : null}
+          </div>
 
           <div className="mt-5 grid gap-3">
             <label className="grid gap-1 text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-muted)]">

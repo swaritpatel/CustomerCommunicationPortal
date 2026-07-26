@@ -3,6 +3,7 @@ import { QueueEvents, Worker, type Job } from "bullmq";
 import { db, type DbTransactionClient } from "@/lib/db";
 import { runAutoReplyWorkflow } from "@/modules/chat/auto-reply";
 import { chatLog } from "@/modules/chat/log";
+import { syncAllGmailInboxes } from "@/modules/email/gmail";
 import { sendSupportEmail } from "@/modules/email/smtp";
 import { deliverEmailWebhookEvent } from "@/modules/email/webhooks";
 import { getQueueConnection } from "@/modules/queue/connection";
@@ -101,10 +102,35 @@ export async function startQueueWorker() {
   await events.waitUntilReady();
   await worker.waitUntilReady();
 
+  const syncIntervalMs = Number.parseInt(process.env.GMAIL_SYNC_INTERVAL_MS || "60000", 10);
+  const gmailSyncTimer =
+    syncIntervalMs > 0
+      ? setInterval(() => {
+          void syncAllGmailInboxes(20)
+            .then((results) => {
+              const imported = results.reduce(
+                (sum, result) => sum + ("imported" in result ? result.imported : 0),
+                0,
+              );
+              if (imported > 0) {
+                chatLog("info", "gmail_poll_imported", { imported });
+              }
+            })
+            .catch((error) => {
+              chatLog("warn", "gmail_poll_failed", {
+                error: error instanceof Error ? error.message : "unknown_error",
+              });
+            });
+        }, syncIntervalMs)
+      : null;
+
   return {
     worker,
     events,
     async close() {
+      if (gmailSyncTimer) {
+        clearInterval(gmailSyncTimer);
+      }
       await Promise.allSettled([worker.close(), events.close()]);
     },
   };
