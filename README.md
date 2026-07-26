@@ -242,6 +242,7 @@ flowchart LR
 - **Threading over subject matching**: email continuity uses `Message-ID`, `In-Reply-To`, and `References`.
 - **Human handoff preserved**: AI can answer, draft, summarize, or auto-resolve only when policy allows; otherwise tickets stay open.
 - **Graceful degradation**: if websocket fails, SSE/polling can still refresh; if all AI providers fail, a safe fallback reply is used.
+- **Recoverable authentication**: password reset uses opaque, time-limited, hashed tokens and never exposes whether an email exists.
 - **Secrets stay in environment**: no production secrets belong in source, README, commits, or screenshots.
 
 ## Low-Level Architecture
@@ -266,7 +267,7 @@ flowchart TB
 
 - `src/app/page.tsx` - public landing/home page.
 - `src/app/overview/page.tsx` - product overview.
-- `src/app/login/page.tsx` and `src/app/signup/page.tsx` - authentication entry points.
+- `src/app/login/page.tsx`, `src/app/signup/page.tsx`, `src/app/forgot-password/page.tsx`, and `src/app/reset-password/page.tsx` - authentication entry points.
 - `src/app/(workspace)/layout.tsx` - authenticated workspace shell and navigation.
 - `src/app/(workspace)/inbox/page.tsx` - unified inbox UI.
 - `src/app/(workspace)/dashboard/page.tsx` - analytics and SLA dashboard.
@@ -281,7 +282,7 @@ flowchart TB
 
 ### Core Modules
 
-- `src/modules/auth/*` - signup, login, password reset, password hashing, session cookies, auth guards.
+- `src/modules/auth/*` - signup, login, Google auth UI helpers, password reset, password hashing, session cookies, auth guards.
 - `src/modules/chat/*` - visitor JWTs, widget chat, typing, auto-reply, AI policy logic, logs.
 - `src/modules/email/*` - Gmail OAuth, Pub/Sub watch registration, sync, inbound normalization, threading, SMTP send, AI acknowledgements.
 - `src/modules/inbox/*` - AI summaries and shared inbox behavior.
@@ -297,7 +298,7 @@ flowchart TB
 
 | Module | Main Files | Responsibility |
 | --- | --- | --- |
-| Auth | `auth/actions.ts`, `auth/session.ts`, `auth/password.ts`, `middleware.ts` | Signup/login, password hashing, refresh sessions, cookies, workspace guards |
+| Auth | `auth/actions.ts`, `auth/session.ts`, `auth/password.ts`, `auth/components/*`, `middleware.ts` | Signup/login, Google OAuth entry, password reset, password hashing, refresh sessions, cookies, workspace guards |
 | Workspace shell | `navigation/workspace-shell.tsx`, `(workspace)/layout.tsx` | Authenticated navigation and current workspace framing |
 | Chat widget | `chat/components/widget-chat-client.tsx`, `api/chat/*` | Visitor bootstrap, local persistence, send/read messages, typing, resolution feedback |
 | Agent chat | `chat/components/agent-chat-client.tsx`, `api/chat/conversations` | Agent view of chat conversations and realtime updates |
@@ -358,6 +359,44 @@ sequenceDiagram
   InboxAPI->>RT: broadcast conversation.updated
   InboxAPI-->>Agent: success
 ```
+
+### LLD: Password Reset Flow
+
+```mermaid
+sequenceDiagram
+  participant User as User
+  participant Forgot as Forgot password page
+  participant Auth as Auth server action
+  participant DB as Prisma/Postgres
+  participant SMTP as Brevo SMTP
+  participant Reset as Reset password page
+
+  User->>Forgot: enter account email
+  Forgot->>Auth: requestPasswordResetAction(email)
+  Auth->>DB: find user by normalized email
+  alt User exists
+    Auth->>Auth: generate opaque random token
+    Auth->>DB: store hashed token + expiry
+    Auth->>SMTP: send reset link using APP_URL
+  else User missing
+    Auth-->>Forgot: generic success response
+  end
+  Forgot-->>User: show neutral confirmation
+  User->>Reset: open /reset-password?token=...
+  Reset->>Auth: resetPasswordAction(token, newPassword)
+  Auth->>DB: hash presented token and find unexpired unused token
+  Auth->>DB: update password hash and mark token used
+  Auth->>DB: invalidate existing refresh sessions
+  Auth-->>Reset: redirect/login prompt
+```
+
+Security details:
+
+1. The reset email uses an opaque random token; the database stores only a hash of that token.
+2. The reset link is built from `APP_URL`, so production must set `APP_URL=https://customer-communication-portal.vercel.app`.
+3. The request screen returns the same generic success message whether or not the email exists, preventing account enumeration.
+4. Tokens expire after a short window and are single-use.
+5. After a successful password reset, existing refresh sessions are invalidated so old sessions cannot continue silently.
 
 ### LLD: Gmail Push/Poll Sync And Threading
 
@@ -456,6 +495,7 @@ The event does not include customer message bodies. After receiving an event:
 
 | Area | Routes |
 | --- | --- |
+| Auth pages/actions | `/login`, `/signup`, `/forgot-password`, `/reset-password`, server actions in `src/modules/auth/actions.ts` |
 | Google OAuth | `/api/auth/google/start`, `/api/auth/google/callback` |
 | Widget script | `/api/widget.js` |
 | Chat | `/api/chat/bootstrap`, `/api/chat/messages`, `/api/chat/conversations`, `/api/chat/typing`, `/api/chat/stream`, `/api/chat/resolution` |
@@ -472,6 +512,7 @@ erDiagram
   User ||--o{ WorkspaceMember : joins
   User ||--o{ Workspace : owns
   Workspace ||--o{ WorkspaceMember : has
+  User ||--o{ PasswordResetToken : requests
   Workspace ||--o{ Conversation : has
   Workspace ||--o{ Invite : sends
   Workspace ||--o{ GmailIntegration : connects
@@ -527,6 +568,7 @@ Important indexes and constraints:
 - `Workspace.slug` is unique for stable help-center and widget routing.
 - `WorkspaceMember` is unique on `(workspaceId, userId)` so one user has one role per workspace.
 - `Invite.token` is unique and expires independently of membership.
+- `PasswordResetToken` stores a token hash, expiry, and consumed timestamp so reset links are opaque, expiring, and single-use.
 - `Conversation` is unique on `(workspaceId, ticketNumber)` while allowing null ticket numbers during early chat.
 - `EmailMessageReference` is unique on `(workspaceId, messageId)` and indexed by `inReplyTo` for thread matching.
 - `KnowledgeBaseArticle` is unique on `(workspaceId, slug)` for clean public article URLs.
