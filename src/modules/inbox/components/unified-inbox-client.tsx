@@ -964,7 +964,7 @@ export function UnifiedInboxClient() {
                       {message.senderType === "AGENT"
                         ? message.senderUser?.fullName || "Cosmofeed Support"
                         : message.senderType === "SYSTEM"
-                          ? "CCP Support"
+                          ? "Cosmofeed Support"
                           : customerLabel(activeConversation)}
                     </p>
                     <p className="mt-1 whitespace-pre-wrap break-words text-sm">{message.body}</p>

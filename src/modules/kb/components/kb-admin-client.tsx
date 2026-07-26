@@ -357,7 +357,7 @@ export function KbAdminClient({
                   key={article.id}
                   className={`rounded-2xl border p-4 text-left transition ${
                     article.id === activeArticle.id
-                      ? "border-[rgba(182,90,52,0.45)] bg-[var(--color-accent-soft)]"
+                      ? "border-[rgba(230,47,137,0.45)] bg-[var(--color-accent-soft)]"
                       : "border-[var(--color-line)] bg-[rgba(255,253,248,0.72)] hover:border-[var(--color-line-strong)]"
                   }`}
                   onClick={() => selectArticle(article)}

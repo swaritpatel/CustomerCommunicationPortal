@@ -17,12 +17,6 @@ const featureTiles = [
   ["Live Widget", "A polished visitor chat bubble with typing, read states, and article suggestions."],
 ];
 
-const metrics = [
-  ["2", "real-time channels"],
-  ["7", "submission features"],
-  ["1", "workspace command center"],
-];
-
 const workflow = [
   ["Capture", "Bring website chat and inbound email into one customer thread."],
   ["Understand", "Use AI summaries, contact history, and SLA signals before replying."],
@@ -56,7 +50,7 @@ export default async function Home() {
     select: { slug: true },
   });
   const claims = await getSessionClaims();
-  const previewWidgetHref = previewWorkspace ? `/widget/embed?workspace=${previewWorkspace.slug}` : "/signup";
+  const previewWidgetHref = previewWorkspace ? `/widget/chat?workspace=${previewWorkspace.slug}` : "/signup";
 
   return (
     <main className="min-h-screen overflow-hidden bg-[#f5f7fb] text-[var(--color-ink)]">
@@ -138,14 +132,6 @@ export default async function Home() {
             </div>
           </div>
 
-          <div className="grid gap-3 pb-4 sm:grid-cols-3">
-            {metrics.map(([value, label]) => (
-              <div key={label} className="rounded-[1.25rem] border border-white/10 bg-white/9 p-4 backdrop-blur">
-                <strong className="block text-3xl font-black">{value}</strong>
-                <span className="text-sm font-semibold text-white/62">{label}</span>
-              </div>
-            ))}
-          </div>
         </div>
       </section>
 

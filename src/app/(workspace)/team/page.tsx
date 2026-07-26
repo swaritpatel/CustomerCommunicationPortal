@@ -101,6 +101,7 @@ export default async function TeamPage() {
     db.conversation.findMany({
       where: {
         workspaceId: claims.workspaceId,
+        messages: { some: {} },
         status: {
           in: ["OPEN", "SNOOZED"],
         },
@@ -127,6 +128,7 @@ export default async function TeamPage() {
       by: ["currentAssigneeId"],
       where: {
         workspaceId: claims.workspaceId,
+        messages: { some: {} },
         status: {
           in: ["OPEN", "SNOOZED"],
         },
@@ -350,7 +352,7 @@ export default async function TeamPage() {
                               {buildInviteUrl(invite.token)}
                             </p>
                           </div>
-                          <span className="rounded-full bg-[rgba(182,90,52,0.09)] px-3 py-1 text-sm font-semibold text-[var(--color-accent-strong)]">
+                          <span className="rounded-full bg-[rgba(230,47,137,0.09)] px-3 py-1 text-sm font-semibold text-[var(--color-accent-strong)]">
                             Pending
                           </span>
                         </div>

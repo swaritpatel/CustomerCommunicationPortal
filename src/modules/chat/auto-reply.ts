@@ -71,6 +71,7 @@ export async function runAutoReplyWorkflow(input: {
   workspaceName: string;
   latestVisitorText: string;
 }) {
+  const typingStartedAt = Date.now();
   await db.chatTypingState.deleteMany({
     where: {
       conversationId: input.conversationId,
@@ -154,6 +155,11 @@ export async function runAutoReplyWorkflow(input: {
             shouldIncludeTicket && !isClarifyingReply(aiReply.body),
           )
         : buildFallbackReply(conversation?.ticketNumber ?? null);
+
+    const remainingTypingMs = 1_000 - (Date.now() - typingStartedAt);
+    if (remainingTypingMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, remainingTypingMs));
+    }
 
     const now = new Date();
     await db.$transaction([

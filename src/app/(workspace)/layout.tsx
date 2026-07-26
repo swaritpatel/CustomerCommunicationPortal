@@ -1,66 +1,54 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
 
-import { logoutAction } from "@/modules/auth/actions";
+import { db } from "@/lib/db";
 import { requireActiveMembership } from "@/modules/auth/guards";
-
-const navigation = [
-  { href: "/", label: "Home" },
-  { href: "/overview", label: "Overview" },
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/chat", label: "Live Chat" },
-  { href: "/inbox", label: "Unified Inbox" },
-  { href: "/policies", label: "Policies" },
-  { href: "/knowledge-base", label: "Knowledge Base" },
-  { href: "/team", label: "Team" },
-  { href: "/team#invites", label: "Invites" },
-  { href: "/team#assignment", label: "Assignment" },
-];
+import { WorkspaceShell } from "@/modules/navigation/workspace-shell";
 
 export default async function WorkspaceLayout({ children }: { children: ReactNode }) {
   const { membership } = await requireActiveMembership();
+  const [unresolvedCount, unreadCount, chatUnreadCount, pendingInviteCount] = await Promise.all([
+    db.conversation.count({
+      where: {
+        workspaceId: membership.workspaceId,
+        status: { in: ["OPEN", "SNOOZED"] },
+        messages: { some: {} },
+      },
+    }),
+    db.chatMessage.count({
+      where: {
+        workspaceId: membership.workspaceId,
+        senderType: "VISITOR",
+        readByAgentAt: null,
+      },
+    }),
+    db.chatMessage.count({
+      where: {
+        workspaceId: membership.workspaceId,
+        senderType: "VISITOR",
+        readByAgentAt: null,
+        conversation: { channel: "CHAT_WIDGET" },
+      },
+    }),
+    db.invite.count({
+      where: {
+        workspaceId: membership.workspaceId,
+        status: "PENDING",
+      },
+    }),
+  ]);
 
   return (
-    <div className="min-h-screen px-6 py-8 sm:px-8 lg:px-10">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
-        <header className="card rounded-[2rem] px-6 py-5 sm:px-8">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="eyebrow">CCP Workspace</p>
-              <div className="mt-2 flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--color-accent)] font-bold text-white">
-                  <span className="text-[10px] tracking-[0.08em]">CCP</span>
-                </div>
-                <div>
-                  <h1 className="text-xl font-extrabold tracking-[-0.03em]">{membership.workspace.name}</h1>
-                  <p className="text-sm text-[var(--color-muted)]">
-                    {membership.role} workspace · {membership.user.email}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <nav className="flex flex-wrap items-center gap-3 text-sm font-semibold text-[var(--color-muted)]">
-              {navigation.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="rounded-full border border-[var(--color-line)] px-4 py-2 transition hover:border-[rgba(182,90,52,0.32)] hover:bg-[rgba(255,255,255,0.72)]"
-                >
-                  {item.label}
-                </Link>
-              ))}
-              <form action={logoutAction}>
-                <button type="submit" className="btn-secondary">
-                  Logout
-                </button>
-              </form>
-            </nav>
-          </div>
-        </header>
-
-        {children}
-      </div>
-    </div>
+    <WorkspaceShell
+      workspaceName={membership.workspace.name}
+      workspaceSlug={membership.workspace.slug}
+      role={membership.role}
+      userEmail={membership.user.email}
+      unreadCount={unreadCount}
+      unresolvedCount={unresolvedCount}
+      chatUnreadCount={chatUnreadCount}
+      pendingInviteCount={pendingInviteCount}
+    >
+      {children}
+    </WorkspaceShell>
   );
 }

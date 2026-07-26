@@ -145,7 +145,10 @@ export default async function WorkspaceDashboardPage() {
 
   const [conversations, members]: [ConversationRow[], MemberRow[]] = await Promise.all([
     db.conversation.findMany({
-      where: { workspaceId: membership.workspaceId },
+      where: {
+        workspaceId: membership.workspaceId,
+        messages: { some: {} },
+      },
       orderBy: { updatedAt: "desc" },
       take: 250,
       select: {

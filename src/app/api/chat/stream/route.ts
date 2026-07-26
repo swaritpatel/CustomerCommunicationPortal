@@ -186,13 +186,23 @@ async function GETHandler(request: Request) {
       connection: "keep-alive",
     };
 
+    let stopStream = () => {};
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
       let closed = false;
+      let syncing = false;
       let lastFingerprint = "";
 
       const send = (event: string, payload: unknown) => {
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`));
+        if (closed) {
+          return;
+        }
+
+        try {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`));
+        } catch {
+          close();
+        }
       };
 
       const close = () => {
@@ -202,10 +212,20 @@ async function GETHandler(request: Request) {
         closed = true;
         clearInterval(heartbeatInterval);
         clearInterval(syncInterval);
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // The browser may already have closed the stream.
+        }
       };
+      stopStream = close;
 
       const runSync = async () => {
+        if (closed || syncing) {
+          return;
+        }
+
+        syncing = true;
         try {
           const now = Date.now();
 
@@ -256,24 +276,30 @@ async function GETHandler(request: Request) {
             actor.kind,
             actor.kind === "AGENT" ? actor.claims.sub : null,
           );
+          if (closed) {
+            return;
+          }
           const fingerprint = toFingerprint(snapshot);
           if (fingerprint !== lastFingerprint) {
             lastFingerprint = fingerprint;
             send("snapshot", snapshot);
           }
         } catch (error) {
+          if (closed) {
+            return;
+          }
           chatLog("error", "stream_sync_failed", {
             conversationId: conversation.id,
             error: error instanceof Error ? error.message : "unknown_error",
           });
           send("error", { message: "sync_failed" });
+        } finally {
+          syncing = false;
         }
       };
 
       const heartbeatInterval = setInterval(() => {
-        if (!closed) {
-          controller.enqueue(encoder.encode(": keepalive\n\n"));
-        }
+        send("heartbeat", { timestamp: Date.now() });
       }, 15_000);
 
       const syncInterval = setInterval(() => {
@@ -288,6 +314,7 @@ async function GETHandler(request: Request) {
       },
       cancel() {
         chatLog("info", "stream_cancelled", { conversationId: conversation.id });
+        stopStream();
         return;
       },
     });

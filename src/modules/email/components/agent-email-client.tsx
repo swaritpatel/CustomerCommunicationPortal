@@ -469,7 +469,7 @@ export function AgentEmailClient() {
                       <p className="text-xs font-semibold text-[rgba(255,255,255,0.8)]">{message.senderUser.fullName}</p>
                     ) : null}
                     {message.senderType === "SYSTEM" ? (
-                      <p className="text-xs font-semibold text-[var(--color-soft)]">CCP Support</p>
+                      <p className="text-xs font-semibold text-[var(--color-soft)]">Cosmofeed Support</p>
                     ) : null}
                     <p className="whitespace-pre-wrap break-words text-sm">{message.body}</p>
                   </div>

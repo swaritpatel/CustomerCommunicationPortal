@@ -100,7 +100,7 @@ export function HelpCenterClient({ workspaceSlug }: { workspaceSlug: string }) {
                         key={article.id}
                         className={`rounded-2xl border px-3 py-2 text-left text-sm transition ${
                           activeArticle?.id === article.id
-                            ? "border-[rgba(182,90,52,0.45)] bg-[var(--color-accent-soft)]"
+                            ? "border-[rgba(230,47,137,0.45)] bg-[var(--color-accent-soft)]"
                             : "border-[var(--color-line)] bg-[rgba(255,253,248,0.72)]"
                         }`}
                         onClick={() => setActiveSlug(article.slug)}
@@ -124,7 +124,7 @@ export function HelpCenterClient({ workspaceSlug }: { workspaceSlug: string }) {
                         key={article.id}
                         className={`rounded-2xl border px-3 py-2 text-left text-sm transition ${
                           activeArticle?.id === article.id
-                            ? "border-[rgba(182,90,52,0.45)] bg-[var(--color-accent-soft)]"
+                            ? "border-[rgba(230,47,137,0.45)] bg-[var(--color-accent-soft)]"
                             : "border-[var(--color-line)] bg-[rgba(255,253,248,0.72)]"
                         }`}
                         onClick={() => setActiveSlug(article.slug)}

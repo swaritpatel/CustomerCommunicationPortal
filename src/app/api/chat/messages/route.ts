@@ -38,6 +38,11 @@ async function maybeGenerateAutoReply(input: {
   workspaceName: string;
   latestVisitorText: string;
 }) {
+  if (process.env.NODE_ENV !== "production") {
+    await runAutoReplyWorkflow(input);
+    return;
+  }
+
   const enqueued = await enqueueBackgroundJob(
     {
       kind: "ai.autoReply",

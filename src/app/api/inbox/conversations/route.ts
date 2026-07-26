@@ -155,6 +155,7 @@ async function GETHandler(request: Request) {
       db.conversation.findMany({
         where: {
           workspaceId: claims.workspaceId,
+          messages: { some: {} },
           ...(channel ? { channel } : {}),
           ...(status ? { status } : {}),
           ...assigneeWhere,

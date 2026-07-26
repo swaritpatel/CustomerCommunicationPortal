@@ -361,7 +361,7 @@ export function AgentChatClient() {
                         }`}
                       >
                         {message.senderType === "AGENT"
-                          ? message.senderUser?.fullName || "CCP Agent"
+                          ? message.senderUser?.fullName || "Cosmofeed Support"
                           : activeConversation?.customerName || "Website visitor"}
                       </p>
                       <p className="mt-1 whitespace-pre-wrap break-words text-sm">{message.body}</p>
@@ -382,8 +382,8 @@ export function AgentChatClient() {
                     </div>
 
                     {message.senderType === "AGENT" ? (
-                      <div className="h-7 w-7 shrink-0 rounded-full border border-[rgba(182,90,52,0.3)] bg-[var(--color-accent-soft)] text-center text-[10px] font-bold leading-7 text-[var(--color-accent-strong)]">
-                        {getInitials(message.senderUser?.fullName || "CCP Agent")}
+                      <div className="h-7 w-7 shrink-0 rounded-full border border-[rgba(230,47,137,0.3)] bg-[var(--color-accent-soft)] text-center text-[10px] font-bold leading-7 text-[var(--color-accent-strong)]">
+                        {getInitials(message.senderUser?.fullName || "Cosmofeed Support")}
                       </div>
                     ) : null}
                   </div>
@@ -485,17 +485,17 @@ export function AgentChatClient() {
                   border-radius: 999px;
                   background: rgba(255, 255, 255, 0.82);
                   padding: 9px 11px;
-                  box-shadow: 0 6px 18px rgba(42, 37, 31, 0.06);
+                  box-shadow: 0 6px 18px rgba(20, 22, 32, 0.06);
                 }
                 .typing-pill.agent {
-                  border-color: rgba(182, 90, 52, 0.28);
+                  border-color: rgba(230, 47, 137, 0.28);
                   background: var(--color-accent-soft);
                 }
                 .typing-dot {
                   width: 6px;
                   height: 6px;
                   border-radius: 999px;
-                  background: #b08f71;
+                  background: #8c91a0;
                   display: inline-block;
                   animation: typing-pulse 1s infinite ease-in-out;
                 }

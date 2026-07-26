@@ -52,6 +52,7 @@ async function GETHandler() {
       where: {
         workspaceId: claims.workspaceId,
         channel: "CHAT_WIDGET",
+        messages: { some: {} },
       },
       orderBy: { updatedAt: "desc" },
       take: 50,

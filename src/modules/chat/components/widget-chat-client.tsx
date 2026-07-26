@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import Image from "next/image";
 import type { Socket } from "socket.io-client";
+import { Check, ChevronRight, Send, Sparkles, X } from "lucide-react";
 
 import { connectConversationSocket } from "@/modules/realtime/client";
 
@@ -32,7 +34,124 @@ type KbSuggestion = {
   href: string;
 };
 
-export function WidgetChatClient() {
+const quickPrompts = [
+  "I need help with my account",
+  "I have a billing question",
+  "Talk to your support team",
+];
+
+function AgentAvatar({
+  compact = false,
+  variant = "female",
+}: {
+  compact?: boolean;
+  variant?: "male" | "female";
+}) {
+  return (
+    <>
+      <span className={`agent-avatar ${compact ? "compact" : ""}`} aria-hidden="true">
+        <span className="agent-avatar-core">
+          <Image
+            src={`/brand/cosmofeed-support-${variant}.png`}
+            alt=""
+            width={compact ? 30 : 48}
+            height={compact ? 30 : 48}
+            priority={!compact}
+          />
+        </span>
+        <span className="agent-avatar-ring" />
+        <span className="agent-avatar-spark"><Sparkles size={compact ? 7 : 9} /></span>
+      </span>
+      <style jsx>{`
+        .agent-avatar {
+          position: relative;
+          display: inline-grid;
+          width: 48px;
+          height: 48px;
+          flex: 0 0 48px;
+          place-items: center;
+        }
+        .agent-avatar.compact {
+          width: 28px;
+          height: 28px;
+          flex-basis: 28px;
+        }
+        .agent-avatar-core {
+          position: relative;
+          z-index: 2;
+          display: grid;
+          width: 40px;
+          height: 40px;
+          place-items: center;
+          border: 2px solid rgba(255, 255, 255, 0.88);
+          border-radius: 50%;
+          overflow: hidden;
+          background: #171923;
+          box-shadow: 0 7px 22px rgba(10, 12, 20, 0.2);
+          animation: agent-float 3.2s ease-in-out infinite;
+        }
+        .compact .agent-avatar-core {
+          width: 27px;
+          height: 27px;
+          border-width: 1px;
+          box-shadow: 0 4px 12px rgba(10, 12, 20, 0.16);
+        }
+        .agent-avatar-core :global(img) {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+        .agent-avatar-ring {
+          position: absolute;
+          inset: 0;
+          border: 1px solid rgba(117, 89, 224, 0.48);
+          border-radius: 50%;
+          animation: avatar-pulse 2.4s ease-out infinite;
+        }
+        .compact .agent-avatar-ring {
+          inset: -2px;
+        }
+        .agent-avatar-spark {
+          position: absolute;
+          z-index: 3;
+          top: 0;
+          right: 0;
+          display: grid;
+          width: 17px;
+          height: 17px;
+          place-items: center;
+          border: 2px solid #181b25;
+          border-radius: 50%;
+          background: #e62f89;
+          color: #ffffff;
+        }
+        .compact .agent-avatar-spark {
+          top: -3px;
+          right: -3px;
+          width: 13px;
+          height: 13px;
+          border-width: 1px;
+        }
+        @keyframes agent-float {
+          0%, 100% { transform: translateY(0) rotate(-2deg); }
+          50% { transform: translateY(-3px) rotate(2deg); }
+        }
+        @keyframes avatar-pulse {
+          0% { opacity: 0.65; transform: scale(0.84); }
+          70%, 100% { opacity: 0; transform: scale(1.16); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .agent-avatar-core,
+          .agent-avatar-ring {
+            animation: none;
+          }
+        }
+      `}</style>
+    </>
+  );
+}
+
+export function WidgetChatClient({ previewMode = false }: { previewMode?: boolean }) {
   const searchParams = useSearchParams();
   const workspace = searchParams.get("workspace") ?? "";
 
@@ -42,6 +161,7 @@ export function WidgetChatClient() {
   const [visitorToken, setVisitorToken] = useState("");
   const [ticketNumber, setTicketNumber] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [agentVariant, setAgentVariant] = useState<"male" | "female">("female");
   const [meta, setMeta] = useState<ChatMeta>({
     agentOnline: false,
     visitorOnline: true,
@@ -51,15 +171,34 @@ export function WidgetChatClient() {
   const [text, setText] = useState("");
   const [suggestions, setSuggestions] = useState<KbSuggestion[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [localAgentTyping, setLocalAgentTyping] = useState(false);
   const [resolutionSubmitting, setResolutionSubmitting] = useState(false);
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const typingDebounceRef = useRef<number | null>(null);
+  const autoTypingTimerRef = useRef<number | null>(null);
   const lastTypingValueRef = useRef(false);
   const streamRef = useRef<EventSource | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const socketHealthyRef = useRef(false);
   const streamHealthyRef = useRef(false);
   const lastStreamEventAtRef = useRef(0);
+
+  useEffect(() => {
+    if (!workspace) {
+      return;
+    }
+
+    const variantKey = `${storagePrefix}.agentVariant`;
+    const savedVariant = window.localStorage.getItem(variantKey);
+    if (savedVariant === "male" || savedVariant === "female") {
+      queueMicrotask(() => setAgentVariant(savedVariant));
+      return;
+    }
+
+    const nextVariant = Math.random() >= 0.5 ? "female" : "male";
+    window.localStorage.setItem(variantKey, nextVariant);
+    queueMicrotask(() => setAgentVariant(nextVariant));
+  }, [storagePrefix, workspace]);
 
   const dedupeMessages = (items: Message[]) => {
     const seen = new Set<string>();
@@ -303,6 +442,9 @@ export function WidgetChatClient() {
       if (typingDebounceRef.current) {
         window.clearTimeout(typingDebounceRef.current);
       }
+      if (autoTypingTimerRef.current) {
+        window.clearTimeout(autoTypingTimerRef.current);
+      }
       if (lastTypingValueRef.current) {
         void sendTyping(false);
       }
@@ -316,6 +458,14 @@ export function WidgetChatClient() {
     }
 
     setIsSending(true);
+    setLocalAgentTyping(true);
+    if (autoTypingTimerRef.current) {
+      window.clearTimeout(autoTypingTimerRef.current);
+    }
+    autoTypingTimerRef.current = window.setTimeout(() => {
+      setLocalAgentTyping(false);
+      autoTypingTimerRef.current = null;
+    }, 1_000);
 
     try {
       const response = await fetch("/api/chat/messages", {
@@ -443,33 +593,35 @@ export function WidgetChatClient() {
     }
   };
 
-  const getInitials = (name: string) => {
-    const tokens = name.trim().split(/\s+/).filter(Boolean);
-    if (tokens.length === 0) {
-      return "A";
+  const agentDisplayName = (message: Message) => message.senderUser?.fullName || "Cosmofeed Support";
+  const closeWidget = () => {
+    if (window.parent !== window) {
+      window.parent.postMessage("relaydesk:close", "*");
+      return;
     }
-    return tokens
-      .slice(0, 2)
-      .map((token) => token[0]?.toUpperCase() ?? "")
-      .join("");
-  };
 
-  const agentDisplayName = (message: Message) => message.senderUser?.fullName || "CCP Agent";
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+
+    window.location.assign("/");
+  };
 
   if (!workspace) {
     return (
       <div className="widget-shell missing">
         <div className="empty-state">
-          <div className="avatar brand">CCP</div>
+          <AgentAvatar variant={agentVariant} />
           <strong>Workspace required</strong>
           <p>Open this widget with a workspace slug, or install it using the script tag from your dashboard.</p>
         </div>
         <style jsx>{`
           .widget-shell {
-            min-height: 100%;
+            min-height: 100vh;
             display: grid;
             place-items: center;
-            background: #fff8f1;
+            background: #f4f5f8;
             font-family: system-ui, -apple-system, sans-serif;
             padding: 24px;
           }
@@ -479,11 +631,11 @@ export function WidgetChatClient() {
             justify-items: center;
             max-width: 280px;
             text-align: center;
-            color: #2c2118;
+            color: #171923;
           }
           .empty-state p {
             margin: 0;
-            color: #7d6b59;
+            color: #707584;
             font-size: 13px;
             line-height: 1.5;
           }
@@ -500,7 +652,7 @@ export function WidgetChatClient() {
             height: 44px;
             font-size: 12px;
             color: #fff;
-            background: #b65a34;
+            background: #e62f89;
           }
         `}</style>
       </div>
@@ -508,27 +660,58 @@ export function WidgetChatClient() {
   }
 
   return (
+    <div className={previewMode ? "widget-preview-stage" : "widget-embed-stage"}>
     <div className="widget-shell">
       <header className="widget-head">
         <div className="title-wrap">
-          <div className="avatar brand">CCP</div>
+          <AgentAvatar variant={agentVariant} />
           <div>
-            <strong>CCP Live Chat</strong>
+            <span className="agent-kicker">Cosmofeed support</span>
+            <strong>How can we help?</strong>
             <p>
               <span className={`status-dot ${meta.agentOnline ? "online" : "offline"}`} />
-              {meta.agentOnline ? "Agent online" : "We reply quickly"}
+              {meta.agentOnline ? "Team online now" : "AI answers instantly"}
             </p>
             {ticketNumber ? <p className="ticket-line">Ticket {ticketNumber}</p> : null}
           </div>
         </div>
-        <button onClick={() => window.parent.postMessage("relaydesk:close", "*")}>✕</button>
+        <button
+          className="close-button"
+          aria-label="Close chat"
+          title="Close chat"
+          onClick={closeWidget}
+        >
+          <X size={18} />
+        </button>
       </header>
 
       <div className="widget-feed">
+        {messages.length === 0 ? (
+          <section className="welcome-state">
+            <AgentAvatar variant={agentVariant} />
+            <span className="welcome-kicker"><Sparkles size={12} /> AI support agent</span>
+            <h1>Hey there, what can we solve together?</h1>
+            <p>Ask a question or choose a quick starting point. A human can join whenever you need one.</p>
+            <div className="quick-prompts">
+              {quickPrompts.map((prompt) => (
+                <button key={prompt} type="button" onClick={() => setText(prompt)}>
+                  <span>{prompt}</span>
+                  <ChevronRight size={15} />
+                </button>
+              ))}
+            </div>
+            <div className="trust-row">
+              <span><Check size={12} /> Private</span>
+              <span><Check size={12} /> Fast replies</span>
+              <span><Check size={12} /> Human handoff</span>
+            </div>
+          </section>
+        ) : null}
+
         {messages.map((message) => (
           <div key={message.id} className={`row ${message.senderType === "VISITOR" ? "mine" : "other"}`}>
             {message.senderType === "VISITOR" ? null : (
-              <div className="avatar small">{getInitials(agentDisplayName(message))}</div>
+              <AgentAvatar compact variant={agentVariant} />
             )}
             <div className={message.senderType === "VISITOR" ? "bubble mine" : "bubble"}>
               <p className="author">{message.senderType === "VISITOR" ? "You" : agentDisplayName(message)}</p>
@@ -546,9 +729,9 @@ export function WidgetChatClient() {
           </div>
         ))}
 
-        {meta.agentTyping ? (
+        {meta.agentTyping || localAgentTyping ? (
           <div className="row other">
-            <div className="avatar small">CA</div>
+            <AgentAvatar compact variant={agentVariant} />
             <div className="typing-pill" aria-live="polite" aria-label="Agent is typing">
               <span />
               <span />
@@ -614,34 +797,65 @@ export function WidgetChatClient() {
               void sendMessage();
             }
           }}
-          placeholder="Write a message"
+          placeholder="Ask us anything..."
           rows={2}
         />
-        <button onClick={() => void sendMessage()} disabled={isSending || text.trim().length === 0}>
-          Send
+        <button
+          className="send-button"
+          aria-label="Send message"
+          title="Send message"
+          onClick={() => void sendMessage()}
+          disabled={isSending || text.trim().length === 0}
+        >
+          <Send size={17} />
         </button>
+        <p className="composer-note">Press Enter to send · Shift + Enter for a new line</p>
       </footer>
 
       <style jsx>{`
+        .widget-embed-stage {
+          width: 100%;
+          height: 100dvh;
+        }
+        .widget-preview-stage {
+          min-height: 100dvh;
+          display: grid;
+          place-items: center;
+          background: #11131b;
+          padding: 28px 16px;
+        }
+        .widget-preview-stage .widget-shell {
+          width: min(392px, 100%);
+          height: min(640px, calc(100dvh - 56px));
+          min-height: 520px;
+          overflow: hidden;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 12px;
+          box-shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
+        }
         .widget-shell {
-          height: 100%;
+          height: 100dvh;
+          min-height: 100vh;
           display: grid;
           grid-template-rows: auto 1fr auto;
-          background: #fff8f1;
-          font-family: system-ui, -apple-system, sans-serif;
+          background: #f4f5f8;
+          color: #171923;
+          font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
         }
         .widget-head {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 12px 14px;
-          border-bottom: 1px solid #e2d6c7;
-          background: #fff;
+          min-height: 88px;
+          padding: 15px 16px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          background: #171923;
+          color: #fff;
         }
         .title-wrap {
           display: flex;
           align-items: center;
-          gap: 10px;
+          gap: 12px;
         }
         .avatar {
           display: inline-flex;
@@ -656,7 +870,7 @@ export function WidgetChatClient() {
           height: 34px;
           font-size: 11px;
           color: #fff;
-          background: #b65a34;
+          background: #e62f89;
         }
         .avatar.small {
           width: 24px;
@@ -669,15 +883,15 @@ export function WidgetChatClient() {
         }
         .widget-head p {
           margin: 2px 0 0;
-          font-size: 12px;
-          color: #7d6b59;
+          font-size: 11px;
+          color: #aeb2c0;
           display: flex;
           align-items: center;
           gap: 6px;
         }
         .widget-head .ticket-line {
-          color: #6a4a33;
-          font-size: 11px;
+          color: #858b9d;
+          font-size: 10px;
           font-weight: 700;
         }
         .status-dot {
@@ -690,21 +904,15 @@ export function WidgetChatClient() {
           background: #2a9d57;
         }
         .status-dot.offline {
-          background: #b7a896;
-        }
-        .widget-head button {
-          border: 0;
-          background: transparent;
-          cursor: pointer;
-          font-size: 16px;
+          background: #9ba1b1;
         }
         .widget-feed {
-          padding: 12px;
+          padding: 16px 14px;
           overflow: auto;
           display: grid;
-          gap: 10px;
+          gap: 12px;
           align-content: start;
-          background: linear-gradient(180deg, rgba(255, 248, 241, 0.35) 0%, rgba(255, 248, 241, 0.7) 100%);
+          background: #f4f5f8;
         }
         .row {
           display: flex;
@@ -718,21 +926,22 @@ export function WidgetChatClient() {
         .bubble {
           max-width: 82%;
           background: #ffffff;
-          border: 1px solid #e8ddd0;
-          border-radius: 14px 14px 14px 4px;
-          padding: 8px 10px;
+          border: 1px solid #e1e3e9;
+          border-radius: 8px 8px 8px 3px;
+          padding: 10px 12px;
+          box-shadow: 0 5px 16px rgba(20, 22, 32, 0.05);
         }
         .bubble.mine {
-          background: #b65a34;
-          border-color: #b65a34;
+          background: #e62f89;
+          border-color: #e62f89;
           color: #fff;
-          border-radius: 14px 14px 4px 14px;
+          border-radius: 8px 8px 3px 8px;
         }
         .author {
           margin: 0 0 4px;
           font-size: 11px;
           font-weight: 700;
-          color: #7d6b59;
+          color: #777c8b;
         }
         .bubble.mine .author {
           color: rgba(255, 255, 255, 0.86);
@@ -812,7 +1021,7 @@ export function WidgetChatClient() {
           display: inline-flex;
           align-items: center;
           gap: 4px;
-          border: 1px solid #e3d1bd;
+          border: 1px solid #e1e3e9;
           border-radius: 999px;
           background: #fff;
           padding: 8px 10px;
@@ -821,7 +1030,7 @@ export function WidgetChatClient() {
           width: 6px;
           height: 6px;
           border-radius: 999px;
-          background: #b08f71;
+          background: #8c91a0;
           animation: pulse 1s infinite ease-in-out;
         }
         .typing-pill span:nth-child(2) {
@@ -833,11 +1042,11 @@ export function WidgetChatClient() {
         .resolution-card {
           justify-self: center;
           width: min(100%, 320px);
-          border: 1px solid #e8ddd0;
-          border-radius: 16px;
+          border: 1px solid #e1e3e9;
+          border-radius: 8px;
           background: #fff;
-          box-shadow: 0 10px 22px rgba(74, 52, 34, 0.08);
-          color: #2c2118;
+          box-shadow: 0 10px 24px rgba(20, 22, 32, 0.08);
+          color: #171923;
           display: grid;
           gap: 10px;
           padding: 12px;
@@ -857,40 +1066,40 @@ export function WidgetChatClient() {
           font-size: 12px;
         }
         .resolution-yes {
-          background: #2a9d57;
+          background: #14966d;
         }
         .resolution-no {
-          background: #2c2118;
+          background: #171923;
         }
         .widget-compose {
-          border-top: 1px solid #e2d6c7;
+          border-top: 1px solid #e1e3e9;
           background: #fff;
-          padding: 10px;
+          padding: 11px 12px 9px;
           display: grid;
-          grid-template-columns: 1fr auto;
+          grid-template-columns: minmax(0, 1fr) 42px;
           gap: 8px;
         }
         .kb-suggestions {
           grid-column: 1 / -1;
           display: grid;
           gap: 6px;
-          border: 1px solid #eadbcb;
-          border-radius: 14px;
-          background: #fffaf4;
+          border: 1px solid #e1e3e9;
+          border-radius: 8px;
+          background: #f7f8fb;
           padding: 8px;
         }
         .kb-label {
-          color: #7d6b59;
+          color: #777c8b;
           font-size: 11px;
           font-weight: 800;
           letter-spacing: 0.06em;
           text-transform: uppercase;
         }
         .kb-suggestion {
-          border: 1px solid #eadbcb;
-          border-radius: 12px;
+          border: 1px solid #e1e3e9;
+          border-radius: 7px;
           background: #fff;
-          color: #2c2118;
+          color: #171923;
           cursor: pointer;
           display: grid;
           gap: 2px;
@@ -901,7 +1110,7 @@ export function WidgetChatClient() {
           font-size: 12px;
         }
         .kb-suggestion span {
-          color: #7d6b59;
+          color: #777c8b;
           font-size: 11px;
           line-height: 1.35;
           overflow: hidden;
@@ -911,34 +1120,186 @@ export function WidgetChatClient() {
         }
         textarea {
           resize: none;
-          border: 1px solid #d8c7b3;
-          border-radius: 10px;
-          padding: 8px;
+          min-height: 46px;
+          max-height: 110px;
+          border: 1px solid #d9dce4;
+          border-radius: 8px;
+          background: #f8f9fb;
+          color: #171923;
+          padding: 11px 12px;
           font: inherit;
           outline: none;
+          transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+        }
+        textarea:focus {
+          border-color: rgba(230, 47, 137, 0.48);
+          background: #fff;
+          box-shadow: 0 0 0 3px rgba(230, 47, 137, 0.1);
         }
         button {
           border: 0;
-          border-radius: 999px;
-          background: #b65a34;
+          border-radius: 7px;
+          background: #e62f89;
           color: #fff;
           padding: 0 14px;
           font-weight: 700;
           cursor: pointer;
+          transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+        }
+        button:hover:not(:disabled) {
+          transform: translateY(-1px);
         }
         button:disabled {
           opacity: 0.55;
           cursor: not-allowed;
         }
         .widget-compose .kb-suggestion {
-          border: 1px solid #eadbcb;
-          border-radius: 12px;
+          border: 1px solid #e1e3e9;
+          border-radius: 7px;
           background: #fff;
-          color: #2c2118;
+          color: #171923;
           display: grid;
           gap: 2px;
           padding: 8px;
           text-align: left;
+        }
+        .agent-kicker {
+          display: block;
+          margin-bottom: 2px;
+          color: #858b9d;
+          font-size: 9px;
+          font-weight: 850;
+          letter-spacing: 0;
+          text-transform: uppercase;
+        }
+        .close-button {
+          display: grid;
+          width: 34px;
+          height: 34px;
+          flex: 0 0 34px;
+          place-items: center;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.06);
+          color: #d8dae2;
+          padding: 0;
+        }
+        .close-button:hover:not(:disabled) {
+          background: rgba(255, 255, 255, 0.12);
+          box-shadow: none;
+        }
+        .welcome-state {
+          display: grid;
+          justify-items: start;
+          gap: 0;
+          border: 1px solid #e1e3e9;
+          border-radius: 8px;
+          background: #fff;
+          box-shadow: 0 12px 32px rgba(20, 22, 32, 0.07);
+          padding: 18px 16px 14px;
+          animation: welcome-arrive 440ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        }
+        .welcome-kicker {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          margin-top: 12px;
+          color: #b71767;
+          font-size: 10px;
+          font-weight: 850;
+          letter-spacing: 0;
+          text-transform: uppercase;
+        }
+        .welcome-state h1 {
+          max-width: 285px;
+          margin: 6px 0 0;
+          font-size: 22px;
+          line-height: 1.15;
+          letter-spacing: 0;
+        }
+        .welcome-state > p {
+          margin: 9px 0 0;
+          color: #666b79;
+          font-size: 12px;
+          line-height: 1.55;
+        }
+        .quick-prompts {
+          display: grid;
+          width: 100%;
+          gap: 6px;
+          margin-top: 15px;
+        }
+        .quick-prompts button {
+          display: flex;
+          min-height: 39px;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          border: 1px solid #e1e3e9;
+          background: #f7f8fa;
+          color: #262936;
+          padding: 8px 10px;
+          text-align: left;
+        }
+        .quick-prompts button:hover:not(:disabled) {
+          border-color: rgba(230, 47, 137, 0.3);
+          background: #fff5fa;
+          color: #b71767;
+          box-shadow: 0 6px 16px rgba(20, 22, 32, 0.05);
+        }
+        .quick-prompts button span {
+          overflow: hidden;
+          font-size: 11px;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .trust-row {
+          display: flex;
+          width: 100%;
+          flex-wrap: wrap;
+          gap: 7px 12px;
+          margin-top: 13px;
+          color: #7d8290;
+          font-size: 9px;
+          font-weight: 700;
+        }
+        .trust-row span {
+          display: inline-flex;
+          align-items: center;
+          gap: 3px;
+        }
+        .trust-row svg {
+          color: #14966d;
+        }
+        .send-button {
+          display: grid;
+          width: 42px;
+          height: 42px;
+          align-self: end;
+          place-items: center;
+          background: #e62f89;
+          padding: 0;
+          box-shadow: 0 8px 20px rgba(230, 47, 137, 0.22);
+        }
+        .send-button:hover:not(:disabled) {
+          background: #cd2477;
+          box-shadow: 0 10px 24px rgba(230, 47, 137, 0.3);
+        }
+        .composer-note {
+          grid-column: 1 / -1;
+          margin: -1px 2px 0;
+          color: #969aa7;
+          font-size: 9px;
+          line-height: 1.2;
+        }
+        @keyframes welcome-arrive {
+          from {
+            opacity: 0;
+            transform: translateY(10px) scale(0.985);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
         }
         @keyframes pulse {
           0%,
@@ -967,6 +1328,7 @@ export function WidgetChatClient() {
           }
         }
       `}</style>
+    </div>
     </div>
   );
 }
