@@ -7,6 +7,44 @@ import {
 import { requireActiveMembership } from "@/modules/auth/guards";
 import { db } from "@/lib/db";
 
+type TeamMemberItem = {
+  id: string;
+  userId: string;
+  role: string;
+  lastSeenAt: Date | null;
+  user: {
+    id: string;
+    fullName: string;
+    email: string;
+  };
+};
+
+type PendingInviteItem = {
+  id: string;
+  email: string;
+  role: string;
+  expiresAt: Date;
+};
+
+type TeamConversationItem = {
+  id: string;
+  subject: string;
+  channel: string;
+  status: string;
+  currentAssigneeId: string | null;
+  currentAssignee: {
+    id: string;
+    fullName: string;
+  } | null;
+};
+
+type AssignmentLoadItem = {
+  currentAssigneeId: string | null;
+  _count: {
+    _all: number;
+  };
+};
+
 function toPresenceLabel(lastSeenAt: Date | null) {
   if (!lastSeenAt) {
     return "Away";
@@ -18,7 +56,13 @@ function toPresenceLabel(lastSeenAt: Date | null) {
 export default async function TeamPage() {
   const { claims } = await requireActiveMembership();
 
-  const [members, pendingInvites, openConversations, assignmentLoad, dbNowRows] = await Promise.all([
+  const [members, pendingInvites, openConversations, assignmentLoad, dbNowRows]: [
+    TeamMemberItem[],
+    PendingInviteItem[],
+    TeamConversationItem[],
+    AssignmentLoadItem[],
+    { now: Date }[],
+  ] = await Promise.all([
     db.workspaceMember.findMany({
       where: {
         workspaceId: claims.workspaceId,
@@ -101,7 +145,9 @@ export default async function TeamPage() {
     }
   }
 
-  const unassignedCount = openConversations.filter((conversation) => !conversation.currentAssigneeId).length;
+  const unassignedCount = openConversations.filter(
+    (conversation: TeamConversationItem) => !conversation.currentAssigneeId,
+  ).length;
 
   return (
     <main className="min-h-screen px-6 py-8 sm:px-8 lg:px-10">
@@ -120,7 +166,7 @@ export default async function TeamPage() {
                 ["Members", String(members.length)],
                 ["Pending invites", String(pendingInvites.length)],
                 ["Unassigned", String(unassignedCount)],
-              ].map(([label, value]) => (
+              ].map(([label, value]: string[]) => (
                 <div key={label} className="rounded-[1.4rem] border border-[var(--color-line)] bg-[rgba(255,255,255,0.52)] px-4 py-3">
                   <div className="eyebrow">{label}</div>
                   <div className="mt-2 text-2xl font-extrabold tracking-[-0.04em]">{value}</div>
@@ -171,7 +217,7 @@ export default async function TeamPage() {
                 </div>
 
                 <div className="divide-y divide-[var(--color-line)]">
-                  {members.map((member) => {
+                  {members.map((member: TeamMemberItem) => {
                     const presence = toPresenceLabel(member.lastSeenAt);
                     const load = loadByUserId.get(member.userId) ?? 0;
 
@@ -233,7 +279,7 @@ export default async function TeamPage() {
                     No open conversations yet. Install the website widget and start chatting to populate this queue.
                   </div>
                 ) : (
-                  openConversations.map((conversation) => (
+                  openConversations.map((conversation: TeamConversationItem) => (
                     <div key={conversation.id} className="rounded-[1.5rem] border border-[var(--color-line)] bg-[rgba(255,255,255,0.52)] p-5">
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div>
@@ -252,7 +298,7 @@ export default async function TeamPage() {
                           <input type="hidden" name="conversationId" value={conversation.id} />
                           <select name="assigneeId" defaultValue={conversation.currentAssigneeId ?? ""} className="input">
                             <option value="">Unassigned</option>
-                            {members.map((member) => (
+                            {members.map((member: TeamMemberItem) => (
                               <option key={member.id} value={member.id}>
                                 {member.user.fullName} ({member.role})
                               </option>
@@ -284,7 +330,7 @@ export default async function TeamPage() {
                     No pending invites.
                   </div>
                 ) : (
-                  pendingInvites.map((invite) => {
+                  pendingInvites.map((invite: PendingInviteItem) => {
                     const daysLeft = Math.max(
                       0,
                       Math.ceil((invite.expiresAt.getTime() - nowMs) / (24 * 60 * 60 * 1000)),
@@ -319,7 +365,7 @@ export default async function TeamPage() {
                   "The final Admin cannot be removed or demoted.",
                   "Assignments can only target active members in the same workspace.",
                   "Auth actions, membership changes, and assignment updates are audited.",
-                ].map((item) => (
+                ].map((item: string) => (
                   <div key={item} className="rounded-[1.25rem] border border-[var(--color-line)] bg-[rgba(255,255,255,0.52)] px-4 py-3 text-sm leading-7 text-[var(--color-muted)]">
                     {item}
                   </div>
