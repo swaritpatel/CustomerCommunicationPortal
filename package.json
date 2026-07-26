@@ -5,12 +5,13 @@
   "scripts": {
     "dev": "next dev",
     "realtime": "node scripts/realtime-server.mjs",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "email:verify": "node scripts/verify-email-channel.mjs",
     "prisma:generate": "prisma generate",
-    "prisma:validate": "prisma validate"
+    "prisma:validate": "prisma validate",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.0",
