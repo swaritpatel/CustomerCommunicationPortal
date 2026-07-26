@@ -63,7 +63,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               <Link href="/" className="font-semibold text-[var(--color-ink)]">
                 Back to overview
               </Link>
-              <span>Forgot password flow next</span>
+              <Link href="/forgot-password" className="font-semibold text-[var(--color-accent-strong)]">
+                Forgot password?
+              </Link>
             </div>
           </div>
         </section>

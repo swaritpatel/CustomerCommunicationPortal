@@ -1,14 +1,23 @@
 "use server";
 
+import { createHash, randomBytes } from "node:crypto";
+
 import { redirect } from "next/navigation";
 
+import { serverEnv } from "@/lib/env";
 import { db, type DbTransactionClient } from "@/lib/db";
 import type { AuthActionState } from "@/modules/auth/form-state";
-import { loginSchema, signupSchema } from "@/modules/auth/schemas";
+import { forgotPasswordSchema, loginSchema, resetPasswordSchema, signupSchema } from "@/modules/auth/schemas";
 import { hashPassword, verifyPassword } from "@/modules/auth/password";
 import { clearSession, issueSession } from "@/modules/auth/session";
+import { sendSupportEmail } from "@/modules/email/smtp";
+import { chatLog } from "@/modules/chat/log";
+import { getErrorDetails } from "@/modules/observability/log";
 import { acceptInviteForUser } from "@/modules/team/invites";
 import { toWorkspaceSlug } from "@/modules/workspaces/slug";
+
+const PASSWORD_RESET_TOKEN_BYTES = 32;
+const PASSWORD_RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -21,6 +30,39 @@ function errorState(message: string, fieldErrors?: Record<string, string[]>) {
     message,
     fieldErrors,
   } satisfies AuthActionState;
+}
+
+function successState(message: string) {
+  return {
+    status: "success",
+    message,
+  } satisfies AuthActionState;
+}
+
+function hashResetToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function buildPasswordResetUrl(token: string) {
+  const url = new URL("/reset-password", serverEnv.APP_URL);
+  url.searchParams.set("token", token);
+  return url.toString();
+}
+
+function resetEmailText(input: { fullName: string; resetUrl: string }) {
+  return [
+    `Hi ${input.fullName},`,
+    "",
+    "We received a request to reset the password for your Customer Communication Portal account.",
+    "",
+    "Use the link below to create a new password. This link expires in 30 minutes:",
+    input.resetUrl,
+    "",
+    "If you did not request this, you can safely ignore this email. Your current password will continue to work.",
+    "",
+    "Best,",
+    "CCP Support",
+  ].join("\n");
 }
 
 function isUniqueConstraintError(error: unknown) {
@@ -274,6 +316,184 @@ export async function loginAction(
       entityId: user.id,
       metadata: { workspaceId: primaryMembership.workspace.id },
     },
+  });
+
+  redirect("/dashboard");
+}
+
+export async function forgotPasswordAction(
+  _previousState: AuthActionState,
+  formData: FormData,
+): Promise<AuthActionState> {
+  const parsedInput = forgotPasswordSchema.safeParse({
+    email: getString(formData, "email"),
+  });
+
+  if (!parsedInput.success) {
+    return errorState("Please enter a valid email address.", parsedInput.error.flatten().fieldErrors);
+  }
+
+  const responseMessage = "If an account exists for that email, a password reset link has been sent.";
+  const user = await db.user.findUnique({
+    where: { email: parsedInput.data.email },
+    select: {
+      id: true,
+      email: true,
+      fullName: true,
+      memberships: {
+        where: { status: "ACTIVE" },
+        select: { workspaceId: true },
+        orderBy: { createdAt: "asc" },
+        take: 1,
+      },
+    },
+  });
+
+  if (!user) {
+    chatLog("info", "password_reset_requested_unknown_email", {
+      email: parsedInput.data.email,
+    });
+    return successState(responseMessage);
+  }
+
+  const rawToken = randomBytes(PASSWORD_RESET_TOKEN_BYTES).toString("base64url");
+  const tokenHash = hashResetToken(rawToken);
+  const expiresAt = new Date(Date.now() + PASSWORD_RESET_TOKEN_TTL_MS);
+  const resetUrl = buildPasswordResetUrl(rawToken);
+
+  await db.passwordResetToken.create({
+    data: {
+      userId: user.id,
+      tokenHash,
+      expiresAt,
+    },
+  });
+
+  await db.auditLog.create({
+    data: {
+      workspaceId: user.memberships[0]?.workspaceId,
+      actorUserId: user.id,
+      action: "PASSWORD_RESET_REQUESTED",
+      entityType: "user",
+      entityId: user.id,
+      metadata: { email: user.email },
+    },
+  });
+
+  try {
+    await sendSupportEmail({
+      to: user.email,
+      subject: "Reset your Customer Communication Portal password",
+      text: resetEmailText({
+        fullName: user.fullName,
+        resetUrl,
+      }),
+    });
+
+    chatLog("info", "password_reset_email_sent", {
+      userId: user.id,
+      email: user.email,
+      expiresAt: expiresAt.toISOString(),
+    });
+  } catch (error) {
+    chatLog("error", "password_reset_email_failed", {
+      userId: user.id,
+      email: user.email,
+      error: getErrorDetails(error),
+    });
+  }
+
+  return successState(responseMessage);
+}
+
+export async function resetPasswordAction(
+  _previousState: AuthActionState,
+  formData: FormData,
+): Promise<AuthActionState> {
+  const parsedInput = resetPasswordSchema.safeParse({
+    token: getString(formData, "token"),
+    password: getString(formData, "password"),
+    confirmPassword: getString(formData, "confirmPassword"),
+  });
+
+  if (!parsedInput.success) {
+    return errorState("Please fix the highlighted fields.", parsedInput.error.flatten().fieldErrors);
+  }
+
+  const tokenHash = hashResetToken(parsedInput.data.token);
+  const resetToken = await db.passwordResetToken.findUnique({
+    where: { tokenHash },
+    include: {
+      user: {
+        include: {
+          memberships: {
+            where: { status: "ACTIVE" },
+            include: { workspace: true },
+            orderBy: { createdAt: "asc" },
+            take: 1,
+          },
+        },
+      },
+    },
+  });
+
+  if (!resetToken || resetToken.usedAt || resetToken.expiresAt <= new Date()) {
+    return errorState("This reset link is invalid or has expired. Please request a new one.");
+  }
+
+  const passwordHash = await hashPassword(parsedInput.data.password);
+  const primaryMembership = resetToken.user.memberships[0];
+
+  await db.$transaction(async (tx: DbTransactionClient) => {
+    await tx.user.update({
+      where: { id: resetToken.userId },
+      data: { passwordHash },
+    });
+
+    await tx.passwordResetToken.update({
+      where: { id: resetToken.id },
+      data: { usedAt: new Date() },
+    });
+
+    await tx.passwordResetToken.updateMany({
+      where: {
+        userId: resetToken.userId,
+        usedAt: null,
+        id: { not: resetToken.id },
+      },
+      data: { usedAt: new Date() },
+    });
+
+    await tx.session.updateMany({
+      where: {
+        userId: resetToken.userId,
+        revokedAt: null,
+      },
+      data: { revokedAt: new Date() },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        workspaceId: primaryMembership?.workspaceId,
+        actorUserId: resetToken.userId,
+        action: "PASSWORD_RESET_COMPLETED",
+        entityType: "user",
+        entityId: resetToken.userId,
+        metadata: { email: resetToken.user.email },
+      },
+    });
+  });
+
+  if (!primaryMembership) {
+    return successState("Your password has been reset. Please log in.");
+  }
+
+  await issueSession({
+    sub: resetToken.user.id,
+    email: resetToken.user.email,
+    workspaceId: primaryMembership.workspace.id,
+    workspaceSlug: primaryMembership.workspace.slug,
+    role: primaryMembership.role,
   });
 
   redirect("/dashboard");

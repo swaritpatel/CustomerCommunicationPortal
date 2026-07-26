@@ -180,10 +180,10 @@ export default async function TeamPage() {
           </div>
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-          <div className="space-y-6">
+        <section className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
+          <div className="min-w-0 space-y-6">
             <article id="members" className="card fade-up rounded-[2rem] p-6" style={{ animationDelay: "80ms" }}>
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="grid gap-5 2xl:grid-cols-[240px_minmax(0,1fr)] 2xl:items-start">
                 <div className="shrink-0">
                   <p className="eyebrow">Members</p>
                   <h2 className="mt-2 text-2xl font-extrabold tracking-[-0.04em]">Workspace access</h2>
@@ -192,7 +192,7 @@ export default async function TeamPage() {
                 {claims.role === "ADMIN" ? (
                   <form
                     action={inviteMemberAction}
-                    className="grid w-full gap-3 sm:grid-cols-[minmax(0,1fr)_7rem] lg:max-w-[640px] lg:grid-cols-[minmax(260px,1fr)_7rem_10.5rem]"
+                    className="grid w-full min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_9rem] lg:grid-cols-[minmax(220px,1fr)_9rem_auto]"
                   >
                     <input
                       name="email"
@@ -205,7 +205,7 @@ export default async function TeamPage() {
                       <option value="ADMIN">Admin</option>
                       <option value="AGENT">Agent</option>
                     </select>
-                    <button className="btn-primary h-14 whitespace-nowrap px-5 text-sm sm:col-span-2 lg:col-span-1" type="submit">
+                    <button className="btn-primary h-14 min-w-[10.75rem] whitespace-nowrap px-5 text-sm sm:col-span-2 lg:col-span-1" type="submit">
                       Invite teammate
                     </button>
                   </form>
@@ -248,9 +248,9 @@ export default async function TeamPage() {
                         <div className="text-sm text-[var(--color-muted)]">{load} open</div>
                         {claims.role === "ADMIN" ? (
                           <div className="flex flex-wrap items-center gap-2">
-                            <form action={updateMemberRoleAction} className="flex items-center gap-2">
+                            <form action={updateMemberRoleAction} className="flex min-w-0 flex-wrap items-center gap-2">
                               <input type="hidden" name="memberId" value={member.id} />
-                              <select name="role" defaultValue={member.role} className="input py-2">
+                              <select name="role" defaultValue={member.role} className="input min-w-[7.5rem] py-2">
                                 <option value="ADMIN">Admin</option>
                                 <option value="AGENT">Agent</option>
                               </select>

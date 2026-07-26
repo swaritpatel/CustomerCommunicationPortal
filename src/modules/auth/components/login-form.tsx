@@ -8,6 +8,7 @@ import {
   initialAuthActionState,
   type AuthActionState,
 } from "@/modules/auth/form-state";
+import { GoogleMark } from "@/modules/auth/components/google-mark";
 import { SubmitButton } from "@/modules/auth/components/submit-button";
 
 function FieldError({ state, field }: { state: AuthActionState; field: string }) {
@@ -32,9 +33,10 @@ export function LoginForm({ inviteToken, inviteEmail }: { inviteToken?: string; 
   return (
     <div className="mt-8 space-y-4">
       <a
-        className="flex w-full items-center justify-center rounded-[1.25rem] border border-[var(--color-line)] bg-white px-5 py-3 text-sm font-bold text-[var(--color-ink)] transition hover:border-[var(--color-line-strong)]"
+        className="flex w-full items-center justify-center gap-3 rounded-[1.25rem] border border-[var(--color-line)] bg-white px-5 py-3 text-sm font-bold text-[var(--color-ink)] transition hover:border-[var(--color-line-strong)]"
         href={googleHref}
       >
+        <GoogleMark />
         Continue with Google
       </a>
 

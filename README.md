@@ -25,7 +25,7 @@ Note: `/widget/chat?workspace=pinelabs` is supported in the latest code as a com
 
 ## What Is Built
 
-- Authentication with email/password and Google OAuth.
+- Authentication with email/password, Google OAuth, and email-based password reset.
 - Workspace creation and workspace-scoped access control.
 - Team invites with signup/login acceptance flow.
 - Unified inbox for live chat and email conversations.
@@ -72,6 +72,7 @@ Note: `/widget/chat?workspace=pinelabs` is supported in the latest code as a com
 | Background jobs | BullMQ | Email sends, auto-acks, queueable background tasks |
 | Worker runtime | `tsx` Node worker | Long-lived queue worker on Render |
 | Auth crypto | `jose`, `bcryptjs` | JWT/session token signing and password hashing |
+| Password recovery | Hashed reset tokens + SMTP email | Time-limited account recovery without exposing account existence |
 | Email sync | Gmail OAuth + Gmail API + Pub/Sub push + polling fallback | Pull support inbox messages into the unified inbox |
 | Email send | Nodemailer + Brevo SMTP | Send support replies and acknowledgements |
 | AI primary | OpenAI-compatible Chat Completions | Drafts, summaries, acknowledgements, chat replies |
@@ -279,7 +280,7 @@ flowchart TB
 
 ### Core Modules
 
-- `src/modules/auth/*` - signup, login, password hashing, session cookies, auth guards.
+- `src/modules/auth/*` - signup, login, password reset, password hashing, session cookies, auth guards.
 - `src/modules/chat/*` - visitor JWTs, widget chat, typing, auto-reply, AI policy logic, logs.
 - `src/modules/email/*` - Gmail OAuth, Pub/Sub watch registration, sync, inbound normalization, threading, SMTP send, AI acknowledgements.
 - `src/modules/inbox/*` - AI summaries and shared inbox behavior.
@@ -492,6 +493,7 @@ erDiagram
 | `WorkspaceMember` | Role and status of each user inside a workspace |
 | `Invite` | Team invite tokens, roles, expiry, acceptance state |
 | `Session` | Refresh-token-backed login sessions |
+| `PasswordResetToken` | Hashed, expiring password reset tokens |
 | `Conversation` | One customer issue across chat or email, with nullable ticket number and status |
 | `ChatMessage` | Messages from visitor, agent, or system |
 | `EmailMessageReference` | Message-ID, In-Reply-To, References tracking for email threading |

@@ -1,5 +1,5 @@
 export type AuthActionState = {
-  status: "idle" | "error";
+  status: "idle" | "error" | "success";
   message?: string;
   fieldErrors?: Record<string, string[]>;
 };
