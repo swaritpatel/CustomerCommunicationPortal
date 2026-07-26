@@ -1,4 +1,5 @@
 import { SignJWT } from "jose";
+import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
 
 import { serverEnv } from "@/lib/env";
@@ -10,7 +11,7 @@ const stateSecret = new TextEncoder().encode(serverEnv.JWT_ACCESS_SECRET);
 export async function GET() {
   const claims = await getSessionClaims();
   if (!claims) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    redirect("/login");
   }
 
   if (!isGmailConfigured()) {
